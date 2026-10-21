@@ -1,2 +1,2 @@
-mod action;
-mod path_planner;
+pub mod action;
+pub mod path_planner;
