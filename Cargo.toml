@@ -1,0 +1,14 @@
+[package]
+name = "auto-qv"
+version = "0.1.0"
+edition = "2024"
+description = "Automates writing with pens such as QvPen in VRChat by driving relative mouse movement"
+publish = false
+
+[[bin]]
+name = "autoqv"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
