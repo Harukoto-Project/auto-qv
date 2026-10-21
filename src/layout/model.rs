@@ -15,7 +15,7 @@ impl Default for LayoutConfig {
         Self {
             size: 1.0,
             width_scale: 1.0,
-            char_spacing: 0.15,
+            char_spacing: 0.0,
             line_spacing: 0.4,
             line_width_em: 20.0,
             kinsoku: true,

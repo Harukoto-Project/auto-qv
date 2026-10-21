@@ -3,9 +3,32 @@ use crate::glyph::model::{Glyph, Point, Stroke};
 
 const CANVAS_SIZE: f32 = 109.0;
 const CANVAS_VIEW_BOX: &str = "viewBox=\"0 0 109 109\"";
-const GLYPH_ADVANCE: f32 = 1.0;
+const MAX_ADVANCE: f32 = 1.0;
+const SIDE_BEARING: f32 = 0.125;
 
 pub fn convert_svg(svg: &str) -> Result<Glyph, String> {
+    build_glyph(svg).map(fit_advance_to_ink)
+}
+
+fn fit_advance_to_ink(mut glyph: Glyph) -> Glyph {
+    let (min_x, max_x) = glyph
+        .strokes
+        .iter()
+        .flatten()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+            (lo.min(p.x), hi.max(p.x))
+        });
+    let width = max_x - min_x;
+    let advance = (width + 2.0 * SIDE_BEARING).min(MAX_ADVANCE);
+    let shift = (advance - width) / 2.0 - min_x;
+    for point in glyph.strokes.iter_mut().flatten() {
+        point.x += shift;
+    }
+    glyph.advance = advance;
+    glyph
+}
+
+fn build_glyph(svg: &str) -> Result<Glyph, String> {
     if !svg.contains(CANVAS_VIEW_BOX) {
         return Err("unexpected canvas size (expected a 109 x 109 view box)".to_string());
     }
@@ -34,7 +57,7 @@ pub fn convert_svg(svg: &str) -> Result<Glyph, String> {
     }
 
     let glyph = Glyph {
-        advance: GLYPH_ADVANCE,
+        advance: MAX_ADVANCE,
         strokes,
     };
     if glyph.strokes.is_empty() || !glyph.is_valid() {
@@ -130,7 +153,7 @@ kvg:type CDATA #IMPLIED >
 
     #[test]
     fn converts_a_real_world_shaped_file() {
-        let glyph = convert_svg(HIRAGANA_A).unwrap();
+        let glyph = build_glyph(HIRAGANA_A).unwrap();
 
         assert_eq!(glyph.advance, 1.0);
         assert_eq!(glyph.strokes.len(), 2);
@@ -141,6 +164,34 @@ kvg:type CDATA #IMPLIED >
         assert!((last.x - 72.38 / 109.0).abs() < 1e-4);
         assert!((last.y - 30.0 / 109.0).abs() < 1e-4);
         assert!(first.len() > 3);
+    }
+
+    #[test]
+    fn the_advance_follows_the_ink_width_with_side_bearings() {
+        let svg = svg_with(r#"<path id="a-s1" d="M30.5,20L54.5,60"/>"#);
+
+        let glyph = convert_svg(&svg).unwrap();
+
+        let width = 24.0 / 109.0;
+        assert!((glyph.advance - (width + 0.25)).abs() < 1e-5);
+        let xs: Vec<f32> = glyph.strokes.iter().flatten().map(|p| p.x).collect();
+        let min = xs.iter().copied().fold(f32::MAX, f32::min);
+        let max = xs.iter().copied().fold(f32::MIN, f32::max);
+        assert!((min - 0.125).abs() < 1e-5);
+        assert!((glyph.advance - max - 0.125).abs() < 1e-5);
+    }
+
+    #[test]
+    fn wide_glyphs_are_centered_within_the_maximum_advance() {
+        let svg = svg_with(r#"<path id="a-s1" d="M10,20L100,20"/>"#);
+
+        let glyph = convert_svg(&svg).unwrap();
+
+        assert_eq!(glyph.advance, 1.0);
+        let xs: Vec<f32> = glyph.strokes.iter().flatten().map(|p| p.x).collect();
+        let min = xs.iter().copied().fold(f32::MAX, f32::min);
+        let max = xs.iter().copied().fold(f32::MIN, f32::max);
+        assert!((min - (1.0 - max)).abs() < 1e-5);
     }
 
     #[test]
@@ -161,7 +212,7 @@ kvg:type CDATA #IMPLIED >
                <path id="kvg:00041-s1" d="M10,10L11,10"/>"#,
         );
 
-        let glyph = convert_svg(&svg).unwrap();
+        let glyph = build_glyph(&svg).unwrap();
 
         let starts: Vec<f32> = glyph.strokes.iter().map(|s| s[0].x * 109.0).collect();
         assert_eq!(starts.len(), 3);
@@ -174,7 +225,7 @@ kvg:type CDATA #IMPLIED >
     fn document_order_is_kept_when_numbers_are_missing() {
         let svg = svg_with(r#"<path d="M50,0L51,0"/><path d="M10,0L11,0"/>"#);
 
-        let glyph = convert_svg(&svg).unwrap();
+        let glyph = build_glyph(&svg).unwrap();
 
         assert!(glyph.strokes[0][0].x > glyph.strokes[1][0].x);
     }
@@ -212,7 +263,7 @@ kvg:type CDATA #IMPLIED >
     fn a_dot_stroke_is_kept_as_a_single_point() {
         let svg = svg_with(r#"<path id="a-s1" d="M50,50"/>"#);
 
-        let glyph = convert_svg(&svg).unwrap();
+        let glyph = build_glyph(&svg).unwrap();
 
         assert_eq!(
             glyph.strokes,

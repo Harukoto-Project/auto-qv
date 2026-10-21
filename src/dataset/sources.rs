@@ -4,7 +4,7 @@ pub const HERSHEY_ROWMANS_SHA256: &str =
 pub const HERSHEY_CONVERTER_VERSION: u32 = 1;
 
 pub const KANJIVG_COMMIT: &str = "d95a97627fd9fe5b2c8d06ca81e38149609c0c1e";
-pub const KANJIVG_CONVERTER_VERSION: u32 = 1;
+pub const KANJIVG_CONVERTER_VERSION: u32 = 2;
 
 const HERSHEY_RAW_BASE: &str = "https://raw.githubusercontent.com/kamalmostafa/hershey-fonts";
 const KANJIVG_RAW_BASE: &str = "https://raw.githubusercontent.com/KanjiVG/kanjivg";
