@@ -1,6 +1,6 @@
 [package]
 name = "auto-qv"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Automates writing with pens such as QvPen in VRChat by driving relative mouse movement"
 publish = false
