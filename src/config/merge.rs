@@ -105,7 +105,7 @@ mod tests {
 
             [pen]
             button = "right"
-            step_delay_ms = 4
+            step_delay_ms = 5
             max_counts_per_step = 6
             move_speed_multiplier = 2.5
             min_pen_down_interval_ms = 300
@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(settings.planner.counts_per_em_x, 300.0);
         assert_eq!(settings.planner.counts_per_em_y, 200.0);
         assert_eq!(settings.button, PenButton::Right);
-        assert_eq!(settings.timing.step_delay_ms, 4);
+        assert_eq!(settings.timing.step_delay_ms, 5);
         assert_eq!(settings.timing.max_counts_per_step, 6);
         assert_eq!(settings.timing.move_speed_multiplier, 2.5);
         assert_eq!(settings.timing.min_pen_down_interval_ms, 300);

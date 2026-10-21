@@ -15,8 +15,8 @@ pub struct StepTiming {
 impl Default for StepTiming {
     fn default() -> Self {
         Self {
-            step_delay_ms: 2,
-            max_counts_per_step: 8,
+            step_delay_ms: 4,
+            max_counts_per_step: 4,
             move_speed_multiplier: 3.0,
             min_pen_down_interval_ms: DEFAULT_MIN_PEN_DOWN_INTERVAL_MS,
         }

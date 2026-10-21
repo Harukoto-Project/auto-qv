@@ -86,8 +86,8 @@ VRChat の QvPen などのペンワールドギミックでの筆記を自動化
 | `--no-kinsoku` | 行頭禁則処理(句読点・閉じ括弧を行頭に置かない)を無効にします | 有効 |
 | `--counts-per-em <N>` | 1 em あたりのマウスカウント数(縦横共通) | 400 |
 | `--counts-per-em-x <N>` / `--counts-per-em-y <N>` | 軸ごとのカウント数(`--counts-per-em` より優先) | 400 |
-| `--step-delay-ms <MS>` | マウス移動 1 ステップごとの待機時間 | 2 |
-| `--max-counts-per-step <N>` | 描画中の 1 ステップあたりの最大カウント数 | 8 |
+| `--step-delay-ms <MS>` | マウス移動 1 ステップごとの待機時間 | 4 |
+| `--max-counts-per-step <N>` | 描画中の 1 ステップあたりの最大カウント数 | 4 |
 | `--move-speed-multiplier <N>` | ペンを上げて移動するときのステップ量の倍率 | 3.0 |
 | `--min-pen-down-interval-ms <MS>` | ペンダウン(ボタン押下)から次のペンダウンまでの最短間隔。`0` で無効 | 230 |
 
@@ -110,8 +110,8 @@ counts_per_em_y = 400.0
 
 [pen]
 button = "left"
-step_delay_ms = 2
-max_counts_per_step = 8
+step_delay_ms = 4
+max_counts_per_step = 4
 move_speed_multiplier = 3.0
 min_pen_down_interval_ms = 230
 
