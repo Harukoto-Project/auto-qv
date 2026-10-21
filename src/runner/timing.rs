@@ -2,11 +2,14 @@ use std::time::Duration;
 
 use crate::planner::action::Action;
 
+pub const DEFAULT_MIN_PEN_DOWN_INTERVAL_MS: u32 = 230;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StepTiming {
     pub step_delay_ms: u32,
     pub max_counts_per_step: u32,
     pub move_speed_multiplier: f32,
+    pub min_pen_down_interval_ms: u32,
 }
 
 impl Default for StepTiming {
@@ -15,6 +18,7 @@ impl Default for StepTiming {
             step_delay_ms: 2,
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
+            min_pen_down_interval_ms: DEFAULT_MIN_PEN_DOWN_INTERVAL_MS,
         }
     }
 }
@@ -36,16 +40,32 @@ impl StepTiming {
 }
 
 pub fn estimate_duration(actions: &[Action], timing: &StepTiming) -> Duration {
+    let delay = u64::from(timing.step_delay_ms);
+    let interval = u64::from(timing.min_pen_down_interval_ms);
     let mut pen_down = false;
-    let mut steps: u64 = 0;
+    let mut elapsed: u64 = 0;
+    let mut last_press: Option<u64> = None;
+
     for action in actions {
         match action {
-            Action::PenDown => pen_down = true,
-            Action::PenUp => pen_down = false,
-            Action::Move { dx, dy } => steps += u64::from(timing.step_count(*dx, *dy, pen_down)),
+            Action::PenDown => {
+                if let Some(last) = last_press {
+                    elapsed = elapsed.max(last + interval);
+                }
+                last_press = Some(elapsed);
+                pen_down = true;
+                elapsed += delay;
+            }
+            Action::PenUp => {
+                pen_down = false;
+                elapsed += delay;
+            }
+            Action::Move { dx, dy } => {
+                elapsed += u64::from(timing.step_count(*dx, *dy, pen_down)) * delay;
+            }
         }
     }
-    Duration::from_millis(steps * u64::from(timing.step_delay_ms))
+    Duration::from_millis(elapsed)
 }
 
 #[cfg(test)]
@@ -57,6 +77,7 @@ mod tests {
             step_delay_ms: 2,
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
+            min_pen_down_interval_ms: 0,
         }
     }
 
@@ -74,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn estimates_duration_from_steps_and_pen_state() {
+    fn estimates_duration_from_steps_pen_state_and_button_waits() {
         let actions = [
             Action::Move { dx: 48, dy: 0 },
             Action::PenDown,
@@ -84,8 +105,53 @@ mod tests {
 
         assert_eq!(
             estimate_duration(&actions, &timing()),
-            Duration::from_millis((2 + 2) * 2)
+            Duration::from_millis((2 + 1 + 2 + 1) * 2)
         );
+    }
+
+    #[test]
+    fn estimate_waits_for_the_minimum_interval_between_pen_downs() {
+        let timing = StepTiming {
+            min_pen_down_interval_ms: 230,
+            ..timing()
+        };
+        let actions = [
+            Action::PenDown,
+            Action::Move { dx: 16, dy: 0 },
+            Action::PenUp,
+            Action::PenDown,
+            Action::PenUp,
+        ];
+
+        assert_eq!(
+            estimate_duration(&actions, &timing),
+            Duration::from_millis(230 + 2 + 2)
+        );
+    }
+
+    #[test]
+    fn estimate_does_not_wait_when_strokes_are_already_far_apart_in_time() {
+        let timing = StepTiming {
+            min_pen_down_interval_ms: 10,
+            ..timing()
+        };
+        let actions = [
+            Action::PenDown,
+            Action::Move { dx: 80, dy: 0 },
+            Action::PenUp,
+            Action::PenDown,
+            Action::PenUp,
+        ];
+
+        let without_interval = estimate_duration(
+            &actions,
+            &StepTiming {
+                min_pen_down_interval_ms: 0,
+                ..timing
+            },
+        );
+
+        assert_eq!(estimate_duration(&actions, &timing), without_interval);
     }
 
     #[test]

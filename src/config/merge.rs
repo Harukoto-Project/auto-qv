@@ -32,6 +32,9 @@ pub fn settings_from_file(file: ConfigFile) -> Result<Settings> {
         settings.timing.move_speed_multiplier =
             checked("pen.move_speed_multiplier", validate::positive_f32(value))?;
     }
+    if let Some(value) = file.pen.min_pen_down_interval_ms {
+        settings.timing.min_pen_down_interval_ms = value;
+    }
 
     if let Some(value) = file.layout.size {
         settings.layout.size = checked("layout.size", validate::positive_f32(value))?;
@@ -105,6 +108,7 @@ mod tests {
             step_delay_ms = 4
             max_counts_per_step = 6
             move_speed_multiplier = 2.5
+            min_pen_down_interval_ms = 300
 
             [layout]
             size = 1.5
@@ -129,6 +133,7 @@ mod tests {
         assert_eq!(settings.timing.step_delay_ms, 4);
         assert_eq!(settings.timing.max_counts_per_step, 6);
         assert_eq!(settings.timing.move_speed_multiplier, 2.5);
+        assert_eq!(settings.timing.min_pen_down_interval_ms, 300);
         assert_eq!(settings.layout.size, 1.5);
         assert_eq!(settings.layout.char_spacing, 0.2);
         assert_eq!(settings.layout.line_spacing, 0.5);

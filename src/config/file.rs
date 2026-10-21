@@ -24,6 +24,7 @@ pub struct PenSection {
     pub step_delay_ms: Option<u32>,
     pub max_counts_per_step: Option<u32>,
     pub move_speed_multiplier: Option<f32>,
+    pub min_pen_down_interval_ms: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]

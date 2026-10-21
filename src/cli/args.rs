@@ -147,6 +147,13 @@ pub struct CommonArgs {
 
     #[arg(long, value_name = "N", value_parser = positive_f32, help = "Step size multiplier while the pen is up")]
     pub move_speed_multiplier: Option<f32>,
+
+    #[arg(
+        long,
+        value_name = "MS",
+        help = "Minimum interval between pen-down events in milliseconds (0 to disable)"
+    )]
+    pub min_pen_down_interval_ms: Option<u32>,
 }
 
 impl CommonArgs {
@@ -186,6 +193,9 @@ impl CommonArgs {
         }
         if let Some(value) = self.move_speed_multiplier {
             settings.timing.move_speed_multiplier = value;
+        }
+        if let Some(value) = self.min_pen_down_interval_ms {
+            settings.timing.min_pen_down_interval_ms = value;
         }
     }
 }
@@ -278,6 +288,20 @@ mod tests {
         assert_eq!(settings.layout.size, 2.0);
         assert_eq!(settings.timing.step_delay_ms, 7);
         assert_eq!(settings.layout.line_spacing, 0.9);
+    }
+
+    #[test]
+    fn min_pen_down_interval_can_be_overridden_and_disabled() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.timing.min_pen_down_interval_ms, 230);
+
+        common(parse(&["preview", "abc", "--min-pen-down-interval-ms", "300"]).unwrap())
+            .apply(&mut settings);
+        assert_eq!(settings.timing.min_pen_down_interval_ms, 300);
+
+        common(parse(&["preview", "abc", "--min-pen-down-interval-ms", "0"]).unwrap())
+            .apply(&mut settings);
+        assert_eq!(settings.timing.min_pen_down_interval_ms, 0);
     }
 
     #[test]

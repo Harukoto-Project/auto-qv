@@ -6,6 +6,8 @@ use crate::error::Result;
 use crate::input::pen_driver::PenDriver;
 use crate::planner::action::Action;
 
+const ABORT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunOutcome {
     Completed,
@@ -43,6 +45,8 @@ fn run(
     pen_down: &mut bool,
 ) -> Result<RunOutcome> {
     let mut pacer = Pacer::new(Duration::from_millis(u64::from(timing.step_delay_ms)));
+    let min_pen_down_interval = Duration::from_millis(u64::from(timing.min_pen_down_interval_ms));
+    let mut last_press: Option<Instant> = None;
     let total = actions.len();
 
     for (index, action) in actions.iter().enumerate() {
@@ -52,7 +56,11 @@ fn run(
 
         match *action {
             Action::PenDown => {
+                if wait_for_pen_down_interval(last_press, min_pen_down_interval, should_abort) {
+                    return Ok(RunOutcome::Aborted);
+                }
                 driver.press()?;
+                last_press = Some(Instant::now());
                 *pen_down = true;
                 pacer.wait();
             }
@@ -83,6 +91,31 @@ fn run(
     }
 
     Ok(RunOutcome::Completed)
+}
+
+fn wait_for_pen_down_interval(
+    last_press: Option<Instant>,
+    interval: Duration,
+    should_abort: &mut dyn FnMut() -> bool,
+) -> bool {
+    let Some(last_press) = last_press else {
+        return false;
+    };
+    let deadline = last_press + interval;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        if should_abort() {
+            return true;
+        }
+        thread::sleep(
+            deadline
+                .saturating_duration_since(now)
+                .min(ABORT_POLL_INTERVAL),
+        );
+    }
 }
 
 fn split(distance: i32, step: u32, steps: u32) -> i32 {
@@ -160,6 +193,7 @@ mod tests {
             step_delay_ms: 0,
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
+            min_pen_down_interval_ms: 0,
         }
     }
 
@@ -319,6 +353,90 @@ mod tests {
         .unwrap();
 
         assert_eq!(progress, vec![(1, 3), (2, 3), (3, 3)]);
+    }
+
+    #[test]
+    fn consecutive_pen_downs_are_spaced_by_the_minimum_interval() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            min_pen_down_interval_ms: 60,
+            ..timing()
+        };
+        let start = Instant::now();
+
+        let outcome = execute(
+            &[
+                Action::PenDown,
+                Action::PenUp,
+                Action::PenDown,
+                Action::PenUp,
+            ],
+            &mut driver,
+            &timing,
+            &mut || false,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(outcome, RunOutcome::Completed);
+        assert!(start.elapsed() >= Duration::from_millis(55));
+        assert_eq!(
+            driver.calls,
+            vec![Call::Press, Call::Release, Call::Press, Call::Release]
+        );
+    }
+
+    #[test]
+    fn first_pen_down_does_not_wait() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            min_pen_down_interval_ms: 1000,
+            ..timing()
+        };
+        let start = Instant::now();
+
+        execute(
+            &[Action::PenDown, Action::PenUp],
+            &mut driver,
+            &timing,
+            &mut || false,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn abort_while_waiting_for_the_interval_skips_the_next_press() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            min_pen_down_interval_ms: 5000,
+            ..timing()
+        };
+        let mut polls = 0;
+        let start = Instant::now();
+
+        let outcome = execute(
+            &[
+                Action::PenDown,
+                Action::PenUp,
+                Action::PenDown,
+                Action::PenUp,
+            ],
+            &mut driver,
+            &timing,
+            &mut || {
+                polls += 1;
+                polls > 3
+            },
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(outcome, RunOutcome::Aborted);
+        assert_eq!(driver.calls, vec![Call::Press, Call::Release]);
+        assert!(start.elapsed() < Duration::from_millis(2000));
     }
 
     #[test]
