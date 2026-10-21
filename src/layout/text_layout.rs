@@ -1,14 +1,16 @@
 use super::kinsoku::is_prohibited_at_line_start;
 use super::model::{Layout, LayoutConfig, MissingGlyph};
-use crate::glyph::model::Point;
+use crate::glyph::model::{Glyph, Point};
 use crate::glyph::store::GlyphStore;
 
 const WIDTH_EPSILON: f32 = 1e-4;
+const MIN_INK_GAP_EM: f32 = 0.05;
 
 pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Layout {
     let mut layout = Layout::default();
     let line_pitch = config.size * (1.0 + config.line_spacing);
     let char_gap = config.size * config.char_spacing;
+    let min_ink_gap = config.size * MIN_INK_GAP_EM;
 
     let mut row = 0usize;
     let mut cursor_x = 0.0f32;
@@ -18,6 +20,7 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
             row += 1;
             cursor_x = 0.0;
         }
+        let mut prev_ink_right: Option<f32> = None;
 
         for (column_index, ch) in line.chars().enumerate() {
             let Some(glyph) = store.get(ch) else {
@@ -29,14 +32,23 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
                 continue;
             };
 
-            let width = glyph.advance * config.size * config.width_scale;
-            let overflows =
-                cursor_x > 0.0 && cursor_x + width > config.line_width_em + WIDTH_EPSILON;
+            let x_scale = config.size * config.width_scale;
+            let width = glyph.advance * x_scale;
+            let ink = ink_range(glyph);
+
+            let mut start_x = cursor_x;
+            if let (Some(right), Some((left, _))) = (prev_ink_right, ink) {
+                start_x = start_x.max(right + min_ink_gap - left * x_scale);
+            }
+
+            let overflows = start_x > 0.0 && start_x + width > config.line_width_em + WIDTH_EPSILON;
             let hangs = config.kinsoku && is_prohibited_at_line_start(ch);
             if overflows && !hangs {
                 row += 1;
-                cursor_x = 0.0;
+                start_x = 0.0;
+                prev_ink_right = None;
             }
+            cursor_x = start_x;
 
             let origin_y = row as f32 * line_pitch;
             for stroke in &glyph.strokes {
@@ -52,11 +64,26 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
             }
 
             layout.placed += 1;
-            cursor_x += (width + char_gap).max(0.0);
+            if let Some((_, right)) = ink {
+                prev_ink_right = Some(cursor_x + right * x_scale);
+            }
+            cursor_x += width + char_gap;
         }
     }
 
     layout
+}
+
+fn ink_range(glyph: &Glyph) -> Option<(f32, f32)> {
+    glyph
+        .strokes
+        .iter()
+        .flatten()
+        .map(|p| p.x)
+        .fold(None, |range, x| match range {
+            None => Some((x, x)),
+            Some((lo, hi)) => Some((lo.min(x), hi.max(x))),
+        })
 }
 
 #[cfg(test)]
@@ -157,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_never_moves_backwards() {
+    fn tightening_stops_before_the_ink_overlaps() {
         let config = LayoutConfig {
             char_spacing: -1.0,
             width_scale: 0.5,
@@ -165,7 +192,31 @@ mod tests {
         };
         let layout = layout_text("ab", &store(), &config);
 
-        assert_eq!(origin(&layout, 1), Point { x: 0.25, y: 0.0 });
+        assert_eq!(
+            origin(&layout, 1),
+            Point {
+                x: 0.5 + 0.05 - 0.25 + 0.25,
+                y: 0.0
+            }
+        );
+    }
+
+    #[test]
+    fn narrow_glyphs_keep_a_gap_under_strong_tightening() {
+        let store = GlyphStore::from_json_str(
+            r#"{"version": 1, "glyphs": {
+                "l": { "advance": 0.25, "strokes": [[[0.125, 0.0], [0.125, 1.0]]] }
+            }}"#,
+        )
+        .unwrap();
+        let config = LayoutConfig {
+            char_spacing: -0.3,
+            ..config()
+        };
+        let layout = layout_text("ll", &store, &config);
+
+        let gap = origin(&layout, 1).x - origin(&layout, 0).x;
+        assert!((gap - 0.05).abs() < 1e-5, "{gap}");
     }
 
     #[test]
