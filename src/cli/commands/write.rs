@@ -24,7 +24,12 @@ pub fn run(args: &WriteArgs) -> anyhow::Result<()> {
     }
 
     let text = read_text(args)?;
-    let prepared = Prepared::build(&text, &args.common.glyph_files, &settings)?;
+    let prepared = Prepared::build(
+        &text,
+        &args.common.glyph_files,
+        args.common.offline,
+        &settings,
+    )?;
     print!("{}", prepared.report());
     log_missing_glyphs(&settings, &prepared);
 

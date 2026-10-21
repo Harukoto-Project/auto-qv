@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::model::Glyph;
 use crate::error::{AutoQvError, Result};
@@ -13,6 +13,12 @@ const SUPPORTED_VERSION: u32 = 1;
 struct GlyphFile {
     version: u32,
     glyphs: HashMap<String, Glyph>,
+}
+
+#[derive(Serialize)]
+struct GlyphFileRef<'a> {
+    version: u32,
+    glyphs: BTreeMap<String, &'a Glyph>,
 }
 
 #[derive(Debug, Default)]
@@ -67,12 +73,43 @@ impl GlyphStore {
         Ok(store)
     }
 
+    pub fn insert(&mut self, ch: char, glyph: Glyph) -> Result<()> {
+        if !glyph.is_valid() {
+            return Err(AutoQvError::GlyphData(format!(
+                "invalid glyph data for {ch:?} (U+{:04X})",
+                ch as u32
+            )));
+        }
+        self.glyphs.insert(ch, glyph);
+        Ok(())
+    }
+
     pub fn merge(&mut self, other: GlyphStore) {
         self.glyphs.extend(other.glyphs);
     }
 
     pub fn get(&self, ch: char) -> Option<&Glyph> {
         self.glyphs.get(&ch)
+    }
+
+    pub fn len(&self) -> usize {
+        self.glyphs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.glyphs.is_empty()
+    }
+
+    pub fn to_json_string(&self) -> Result<String> {
+        let file = GlyphFileRef {
+            version: SUPPORTED_VERSION,
+            glyphs: self
+                .glyphs
+                .iter()
+                .map(|(ch, glyph)| (ch.to_string(), glyph))
+                .collect(),
+        };
+        serde_json::to_string(&file).map_err(|e| AutoQvError::GlyphData(e.to_string()))
     }
 }
 
@@ -134,6 +171,47 @@ mod tests {
     #[test]
     fn rejects_malformed_json() {
         assert!(GlyphStore::from_json_str("not json").is_err());
+    }
+
+    #[test]
+    fn json_round_trip_preserves_glyphs() {
+        let json = r#"{ "version": 1, "glyphs": {
+            "b": { "advance": 0.5, "strokes": [] },
+            "a": { "advance": 0.75, "strokes": [[[0.25, 0.5], [0.5, 0.125]]] }
+        } }"#;
+        let store = GlyphStore::from_json_str(json).unwrap();
+
+        let restored = GlyphStore::from_json_str(&store.to_json_string().unwrap()).unwrap();
+
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.get('a'), store.get('a'));
+        assert_eq!(restored.get('b'), store.get('b'));
+    }
+
+    #[test]
+    fn serialized_glyphs_are_ordered_by_character() {
+        let json = r#"{ "version": 1, "glyphs": {
+            "b": { "advance": 1.0, "strokes": [] },
+            "a": { "advance": 1.0, "strokes": [] }
+        } }"#;
+        let text = GlyphStore::from_json_str(json)
+            .unwrap()
+            .to_json_string()
+            .unwrap();
+
+        assert!(text.find("\"a\"").unwrap() < text.find("\"b\"").unwrap());
+    }
+
+    #[test]
+    fn insert_rejects_invalid_glyphs() {
+        let mut store = GlyphStore::default();
+        let invalid = Glyph {
+            advance: 0.0,
+            strokes: vec![],
+        };
+
+        assert!(store.insert('a', invalid).is_err());
+        assert!(store.is_empty());
     }
 
     #[test]

@@ -11,6 +11,9 @@ pub enum AutoQvError {
     #[error("invalid glyph data: {0}")]
     GlyphData(String),
 
+    #[error("stroke data fetch failed: {0}")]
+    Dataset(String),
+
     #[error("input device error: {0}")]
     Input(String),
 }

@@ -106,9 +106,15 @@ pub struct CommonArgs {
     #[arg(
         long = "glyph-file",
         value_name = "PATH",
-        help = "Stroke data JSON file (repeatable, later files override earlier ones)"
+        help = "Stroke data JSON file merged over the downloaded data (repeatable, later files win)"
     )]
     pub glyph_files: Vec<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Do not download stroke data; use only the cache and --glyph-file"
+    )]
+    pub offline: bool,
 
     #[arg(long, value_name = "N", value_parser = positive_f32, help = "Glyph scale factor")]
     pub size: Option<f32>,

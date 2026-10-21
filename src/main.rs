@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod dataset;
 mod error;
 mod glyph;
 mod input;
