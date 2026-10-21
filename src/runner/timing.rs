@@ -3,6 +3,8 @@ use std::time::Duration;
 use crate::planner::action::Action;
 
 pub const DEFAULT_MIN_PEN_DOWN_INTERVAL_MS: u32 = 230;
+pub const DEFAULT_PEN_DOWN_DELAY_MS: u32 = 30;
+pub const DEFAULT_PEN_UP_DELAY_MS: u32 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StepTiming {
@@ -10,6 +12,8 @@ pub struct StepTiming {
     pub max_counts_per_step: u32,
     pub move_speed_multiplier: f32,
     pub min_pen_down_interval_ms: u32,
+    pub pen_down_delay_ms: u32,
+    pub pen_up_delay_ms: u32,
 }
 
 impl Default for StepTiming {
@@ -19,6 +23,8 @@ impl Default for StepTiming {
             max_counts_per_step: 4,
             move_speed_multiplier: 3.0,
             min_pen_down_interval_ms: DEFAULT_MIN_PEN_DOWN_INTERVAL_MS,
+            pen_down_delay_ms: DEFAULT_PEN_DOWN_DELAY_MS,
+            pen_up_delay_ms: DEFAULT_PEN_UP_DELAY_MS,
         }
     }
 }
@@ -42,6 +48,8 @@ impl StepTiming {
 pub fn estimate_duration(actions: &[Action], timing: &StepTiming) -> Duration {
     let delay = u64::from(timing.step_delay_ms);
     let interval = u64::from(timing.min_pen_down_interval_ms);
+    let pen_down_delay = u64::from(timing.pen_down_delay_ms);
+    let pen_up_delay = u64::from(timing.pen_up_delay_ms);
     let mut pen_down = false;
     let mut elapsed: u64 = 0;
     let mut last_press: Option<u64> = None;
@@ -54,11 +62,11 @@ pub fn estimate_duration(actions: &[Action], timing: &StepTiming) -> Duration {
                 }
                 last_press = Some(elapsed);
                 pen_down = true;
-                elapsed += delay;
+                elapsed += delay + pen_down_delay;
             }
             Action::PenUp => {
                 pen_down = false;
-                elapsed += delay;
+                elapsed += delay + pen_up_delay;
             }
             Action::Move { dx, dy } => {
                 elapsed += u64::from(timing.step_count(*dx, *dy, pen_down)) * delay;
@@ -78,6 +86,8 @@ mod tests {
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
             min_pen_down_interval_ms: 0,
+            pen_down_delay_ms: 0,
+            pen_up_delay_ms: 0,
         }
     }
 
@@ -106,6 +116,21 @@ mod tests {
         assert_eq!(
             estimate_duration(&actions, &timing()),
             Duration::from_millis((2 + 1 + 2 + 1) * 2)
+        );
+    }
+
+    #[test]
+    fn estimate_includes_the_pen_down_and_pen_up_delays() {
+        let timing = StepTiming {
+            pen_down_delay_ms: 30,
+            pen_up_delay_ms: 20,
+            ..timing()
+        };
+        let actions = [Action::PenDown, Action::PenUp];
+
+        assert_eq!(
+            estimate_duration(&actions, &timing),
+            Duration::from_millis(2 + 30 + 2 + 20)
         );
     }
 

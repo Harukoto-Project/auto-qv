@@ -35,9 +35,18 @@ pub fn settings_from_file(file: ConfigFile) -> Result<Settings> {
     if let Some(value) = file.pen.min_pen_down_interval_ms {
         settings.timing.min_pen_down_interval_ms = value;
     }
+    if let Some(value) = file.pen.pen_down_delay_ms {
+        settings.timing.pen_down_delay_ms = value;
+    }
+    if let Some(value) = file.pen.pen_up_delay_ms {
+        settings.timing.pen_up_delay_ms = value;
+    }
 
     if let Some(value) = file.layout.size {
         settings.layout.size = checked("layout.size", validate::positive_f32(value))?;
+    }
+    if let Some(value) = file.layout.width_scale {
+        settings.layout.width_scale = checked("layout.width_scale", validate::positive_f32(value))?;
     }
     if let Some(value) = file.layout.char_spacing {
         settings.layout.char_spacing =
@@ -109,9 +118,12 @@ mod tests {
             max_counts_per_step = 6
             move_speed_multiplier = 2.5
             min_pen_down_interval_ms = 300
+            pen_down_delay_ms = 45
+            pen_up_delay_ms = 0
 
             [layout]
             size = 1.5
+            width_scale = 0.6
             char_spacing = 0.2
             line_spacing = 0.5
             line_width_em = 12.0
@@ -134,7 +146,10 @@ mod tests {
         assert_eq!(settings.timing.max_counts_per_step, 6);
         assert_eq!(settings.timing.move_speed_multiplier, 2.5);
         assert_eq!(settings.timing.min_pen_down_interval_ms, 300);
+        assert_eq!(settings.timing.pen_down_delay_ms, 45);
+        assert_eq!(settings.timing.pen_up_delay_ms, 0);
         assert_eq!(settings.layout.size, 1.5);
+        assert_eq!(settings.layout.width_scale, 0.6);
         assert_eq!(settings.layout.char_spacing, 0.2);
         assert_eq!(settings.layout.line_spacing, 0.5);
         assert_eq!(settings.layout.line_width_em, 12.0);

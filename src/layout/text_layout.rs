@@ -29,7 +29,7 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
                 continue;
             };
 
-            let width = glyph.advance * config.size;
+            let width = glyph.advance * config.size * config.width_scale;
             let overflows =
                 cursor_x > 0.0 && cursor_x + width > config.line_width_em + WIDTH_EPSILON;
             let hangs = config.kinsoku && is_prohibited_at_line_start(ch);
@@ -44,7 +44,7 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
                     stroke
                         .iter()
                         .map(|p| Point {
-                            x: cursor_x + p.x * config.size,
+                            x: cursor_x + p.x * config.size * config.width_scale,
                             y: origin_y + p.y * config.size,
                         })
                         .collect(),
@@ -79,6 +79,7 @@ mod tests {
     fn config() -> LayoutConfig {
         LayoutConfig {
             size: 1.0,
+            width_scale: 1.0,
             char_spacing: 0.5,
             line_spacing: 1.0,
             line_width_em: 3.0,
@@ -111,6 +112,31 @@ mod tests {
         assert_eq!(layout.strokes[0][1], Point { x: 2.0, y: 2.0 });
         assert_eq!(origin(&layout, 1), Point { x: 4.0, y: 0.0 });
         assert_eq!(origin(&layout, 2), Point { x: 0.0, y: 4.0 });
+    }
+
+    #[test]
+    fn width_scale_narrows_glyphs_and_advance_but_not_height_or_spacing() {
+        let config = LayoutConfig {
+            width_scale: 0.5,
+            ..config()
+        };
+        let layout = layout_text("ab", &store(), &config);
+
+        assert_eq!(layout.strokes[0][1], Point { x: 0.5, y: 1.0 });
+        assert_eq!(origin(&layout, 1), Point { x: 1.25, y: 0.0 });
+    }
+
+    #[test]
+    fn width_scale_is_relative_to_size() {
+        let config = LayoutConfig {
+            size: 2.0,
+            width_scale: 0.5,
+            line_width_em: 100.0,
+            ..config()
+        };
+        let layout = layout_text("a", &store(), &config);
+
+        assert_eq!(layout.strokes[0][1], Point { x: 1.0, y: 2.0 });
     }
 
     #[test]

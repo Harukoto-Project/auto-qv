@@ -25,12 +25,15 @@ pub struct PenSection {
     pub max_counts_per_step: Option<u32>,
     pub move_speed_multiplier: Option<f32>,
     pub min_pen_down_interval_ms: Option<u32>,
+    pub pen_down_delay_ms: Option<u32>,
+    pub pen_up_delay_ms: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LayoutSection {
     pub size: Option<f32>,
+    pub width_scale: Option<f32>,
     pub char_spacing: Option<f32>,
     pub line_spacing: Option<f32>,
     pub line_width_em: Option<f32>,

@@ -152,6 +152,9 @@ pub struct CommonArgs {
     #[arg(long, value_name = "COUNTS", value_parser = positive_f32, help = "Mouse counts per em (vertical)")]
     pub counts_per_em_y: Option<f32>,
 
+    #[arg(long, value_name = "N", value_parser = positive_f32, help = "Horizontal glyph scale factor (relative to size)")]
+    pub width_scale: Option<f32>,
+
     #[arg(long, value_name = "N", value_parser = non_negative_f32, help = "Character spacing (relative to size)")]
     pub char_spacing: Option<f32>,
 
@@ -179,12 +182,29 @@ pub struct CommonArgs {
         help = "Minimum interval between pen-down events in milliseconds (0 to disable)"
     )]
     pub min_pen_down_interval_ms: Option<u32>,
+
+    #[arg(
+        long,
+        value_name = "MS",
+        help = "Wait after pressing the pen button before drawing starts, in milliseconds (0 to disable)"
+    )]
+    pub pen_down_delay_ms: Option<u32>,
+
+    #[arg(
+        long,
+        value_name = "MS",
+        help = "Wait after releasing the pen button before moving on, in milliseconds (0 to disable)"
+    )]
+    pub pen_up_delay_ms: Option<u32>,
 }
 
 impl CommonArgs {
     pub fn apply(&self, settings: &mut Settings) {
         if let Some(size) = self.size {
             settings.layout.size = size;
+        }
+        if let Some(value) = self.width_scale {
+            settings.layout.width_scale = value;
         }
         if let Some(value) = self.char_spacing {
             settings.layout.char_spacing = value;
@@ -221,6 +241,12 @@ impl CommonArgs {
         }
         if let Some(value) = self.min_pen_down_interval_ms {
             settings.timing.min_pen_down_interval_ms = value;
+        }
+        if let Some(value) = self.pen_down_delay_ms {
+            settings.timing.pen_down_delay_ms = value;
+        }
+        if let Some(value) = self.pen_up_delay_ms {
+            settings.timing.pen_up_delay_ms = value;
         }
     }
 }
@@ -335,6 +361,40 @@ mod tests {
         common(parse(&["preview", "abc", "--min-pen-down-interval-ms", "0"]).unwrap())
             .apply(&mut settings);
         assert_eq!(settings.timing.min_pen_down_interval_ms, 0);
+    }
+
+    #[test]
+    fn pen_delays_can_be_overridden_and_disabled() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.timing.pen_down_delay_ms, 30);
+        assert_eq!(settings.timing.pen_up_delay_ms, 30);
+
+        common(
+            parse(&[
+                "preview",
+                "abc",
+                "--pen-down-delay-ms",
+                "50",
+                "--pen-up-delay-ms",
+                "0",
+            ])
+            .unwrap(),
+        )
+        .apply(&mut settings);
+
+        assert_eq!(settings.timing.pen_down_delay_ms, 50);
+        assert_eq!(settings.timing.pen_up_delay_ms, 0);
+    }
+
+    #[test]
+    fn width_scale_can_be_overridden_and_must_be_positive() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.layout.width_scale, 1.0);
+
+        common(parse(&["preview", "abc", "--width-scale", "0.6"]).unwrap()).apply(&mut settings);
+
+        assert_eq!(settings.layout.width_scale, 0.6);
+        assert!(parse(&["preview", "abc", "--width-scale", "0"]).is_err());
     }
 
     #[test]

@@ -46,6 +46,8 @@ fn run(
 ) -> Result<RunOutcome> {
     let mut pacer = Pacer::new(Duration::from_millis(u64::from(timing.step_delay_ms)));
     let min_pen_down_interval = Duration::from_millis(u64::from(timing.min_pen_down_interval_ms));
+    let pen_down_delay = Duration::from_millis(u64::from(timing.pen_down_delay_ms));
+    let pen_up_delay = Duration::from_millis(u64::from(timing.pen_up_delay_ms));
     let mut last_press: Option<Instant> = None;
     let total = actions.len();
 
@@ -63,11 +65,17 @@ fn run(
                 last_press = Some(Instant::now());
                 *pen_down = true;
                 pacer.wait();
+                if sleep_abortable(pen_down_delay, should_abort) {
+                    return Ok(RunOutcome::Aborted);
+                }
             }
             Action::PenUp => {
                 driver.release()?;
                 *pen_down = false;
                 pacer.wait();
+                if sleep_abortable(pen_up_delay, should_abort) {
+                    return Ok(RunOutcome::Aborted);
+                }
             }
             Action::Move { dx, dy } => {
                 let steps = timing.step_count(dx, dy, *pen_down);
@@ -101,7 +109,17 @@ fn wait_for_pen_down_interval(
     let Some(last_press) = last_press else {
         return false;
     };
-    let deadline = last_press + interval;
+    sleep_until(last_press + interval, should_abort)
+}
+
+fn sleep_abortable(duration: Duration, should_abort: &mut dyn FnMut() -> bool) -> bool {
+    if duration.is_zero() {
+        return false;
+    }
+    sleep_until(Instant::now() + duration, should_abort)
+}
+
+fn sleep_until(deadline: Instant, should_abort: &mut dyn FnMut() -> bool) -> bool {
     loop {
         let now = Instant::now();
         if now >= deadline {
@@ -194,6 +212,8 @@ mod tests {
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
             min_pen_down_interval_ms: 0,
+            pen_down_delay_ms: 0,
+            pen_up_delay_ms: 0,
         }
     }
 
@@ -424,6 +444,57 @@ mod tests {
                 Action::PenDown,
                 Action::PenUp,
             ],
+            &mut driver,
+            &timing,
+            &mut || {
+                polls += 1;
+                polls > 3
+            },
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(outcome, RunOutcome::Aborted);
+        assert_eq!(driver.calls, vec![Call::Press, Call::Release]);
+        assert!(start.elapsed() < Duration::from_millis(2000));
+    }
+
+    #[test]
+    fn pen_delays_separate_the_button_events_from_the_following_moves() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            pen_down_delay_ms: 40,
+            pen_up_delay_ms: 40,
+            ..timing()
+        };
+        let start = Instant::now();
+
+        let outcome = execute(
+            &[Action::PenDown, Action::PenUp],
+            &mut driver,
+            &timing,
+            &mut || false,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(outcome, RunOutcome::Completed);
+        assert!(start.elapsed() >= Duration::from_millis(75));
+        assert_eq!(driver.calls, vec![Call::Press, Call::Release]);
+    }
+
+    #[test]
+    fn abort_during_the_pen_down_delay_releases_the_pen() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            pen_down_delay_ms: 5000,
+            ..timing()
+        };
+        let mut polls = 0;
+        let start = Instant::now();
+
+        let outcome = execute(
+            &[Action::PenDown, Action::Move { dx: 10, dy: 0 }],
             &mut driver,
             &timing,
             &mut || {
