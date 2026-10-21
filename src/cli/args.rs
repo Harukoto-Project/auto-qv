@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand, value_parser};
 
-use crate::layout::model::LayoutConfig;
-use crate::planner::path_planner::PlannerConfig;
-use crate::runner::timing::StepTiming;
+use crate::config::model::Settings;
+use crate::config::validate;
+use crate::input::hotkey::Hotkey;
+use crate::input::pen_button::PenButton;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -19,6 +20,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    #[command(about = "Write text with the pen (waits for the start hotkey)")]
+    Write(WriteArgs),
     #[command(about = "Show the planned pen path summary without sending any input")]
     Preview(PreviewArgs),
 }
@@ -33,7 +36,73 @@ pub struct PreviewArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(ArgGroup::new("source").required(true).args(["text", "file"])))]
+pub struct WriteArgs {
+    #[arg(value_name = "TEXT", help = "Text to write")]
+    pub text: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Read the text to write from a UTF-8 file"
+    )]
+    pub file: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub common: CommonArgs,
+
+    #[arg(
+        long,
+        value_name = "BUTTON",
+        value_parser = value_parser!(PenButton),
+        help = "Mouse button used to put the pen down (left, right or middle)"
+    )]
+    pub button: Option<PenButton>,
+
+    #[arg(
+        long,
+        value_name = "KEY",
+        value_parser = value_parser!(Hotkey),
+        help = "Hotkey that starts writing (e.g. Alt+P)"
+    )]
+    pub start_hotkey: Option<Hotkey>,
+
+    #[arg(
+        long,
+        value_name = "KEY",
+        value_parser = value_parser!(Hotkey),
+        help = "Hotkey that aborts writing (e.g. Alt+C)"
+    )]
+    pub abort_hotkey: Option<Hotkey>,
+
+    #[arg(long, help = "Show the plan and exit without sending any input")]
+    pub dry_run: bool,
+}
+
+impl WriteArgs {
+    pub fn apply(&self, settings: &mut Settings) {
+        self.common.apply(settings);
+        if let Some(button) = self.button {
+            settings.button = button;
+        }
+        if let Some(hotkey) = self.start_hotkey {
+            settings.start_hotkey = hotkey;
+        }
+        if let Some(hotkey) = self.abort_hotkey {
+            settings.abort_hotkey = hotkey;
+        }
+    }
+}
+
+#[derive(Debug, Args)]
 pub struct CommonArgs {
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Configuration file (default: autoqv.toml next to the executable, if present)"
+    )]
+    pub config: Option<PathBuf>,
+
     #[arg(
         long = "glyph-file",
         value_name = "PATH",
@@ -81,70 +150,59 @@ pub struct CommonArgs {
 }
 
 impl CommonArgs {
-    pub fn layout_config(&self) -> LayoutConfig {
-        let defaults = LayoutConfig::default();
-        LayoutConfig {
-            size: self.size.unwrap_or(defaults.size),
-            char_spacing: self.char_spacing.unwrap_or(defaults.char_spacing),
-            line_spacing: self.line_spacing.unwrap_or(defaults.line_spacing),
-            line_width_em: self.line_width_em.unwrap_or(defaults.line_width_em),
-            kinsoku: defaults.kinsoku && !self.no_kinsoku,
+    pub fn apply(&self, settings: &mut Settings) {
+        if let Some(size) = self.size {
+            settings.layout.size = size;
         }
-    }
-
-    pub fn planner_config(&self) -> PlannerConfig {
-        let defaults = PlannerConfig::default();
-        PlannerConfig {
-            counts_per_em_x: self
-                .counts_per_em_x
-                .or(self.counts_per_em)
-                .unwrap_or(defaults.counts_per_em_x),
-            counts_per_em_y: self
-                .counts_per_em_y
-                .or(self.counts_per_em)
-                .unwrap_or(defaults.counts_per_em_y),
+        if let Some(value) = self.char_spacing {
+            settings.layout.char_spacing = value;
         }
-    }
+        if let Some(value) = self.line_spacing {
+            settings.layout.line_spacing = value;
+        }
+        if let Some(value) = self.line_width_em {
+            settings.layout.line_width_em = value;
+        }
+        if self.no_kinsoku {
+            settings.layout.kinsoku = false;
+        }
 
-    pub fn step_timing(&self) -> StepTiming {
-        let defaults = StepTiming::default();
-        StepTiming {
-            step_delay_ms: self.step_delay_ms.unwrap_or(defaults.step_delay_ms),
-            max_counts_per_step: self
-                .max_counts_per_step
-                .unwrap_or(defaults.max_counts_per_step),
-            move_speed_multiplier: self
-                .move_speed_multiplier
-                .unwrap_or(defaults.move_speed_multiplier),
+        if let Some(value) = self.counts_per_em {
+            settings.planner.counts_per_em_x = value;
+            settings.planner.counts_per_em_y = value;
+        }
+        if let Some(value) = self.counts_per_em_x {
+            settings.planner.counts_per_em_x = value;
+        }
+        if let Some(value) = self.counts_per_em_y {
+            settings.planner.counts_per_em_y = value;
+        }
+
+        if let Some(value) = self.step_delay_ms {
+            settings.timing.step_delay_ms = value;
+        }
+        if let Some(value) = self.max_counts_per_step {
+            settings.timing.max_counts_per_step = value;
+        }
+        if let Some(value) = self.move_speed_multiplier {
+            settings.timing.move_speed_multiplier = value;
         }
     }
 }
 
 fn positive_f32(value: &str) -> Result<f32, String> {
     let parsed: f32 = value.parse().map_err(|e| format!("{e}"))?;
-    if parsed.is_finite() && parsed > 0.0 {
-        Ok(parsed)
-    } else {
-        Err("must be a positive number".to_string())
-    }
+    validate::positive_f32(parsed).map_err(String::from)
 }
 
 fn non_negative_f32(value: &str) -> Result<f32, String> {
     let parsed: f32 = value.parse().map_err(|e| format!("{e}"))?;
-    if parsed.is_finite() && parsed >= 0.0 {
-        Ok(parsed)
-    } else {
-        Err("must be zero or a positive number".to_string())
-    }
+    validate::non_negative_f32(parsed).map_err(String::from)
 }
 
 fn positive_u32(value: &str) -> Result<u32, String> {
     let parsed: u32 = value.parse().map_err(|e| format!("{e}"))?;
-    if parsed > 0 {
-        Ok(parsed)
-    } else {
-        Err("must be a positive integer".to_string())
-    }
+    validate::positive_u32(parsed).map_err(String::from)
 }
 
 #[cfg(test)]
@@ -159,6 +217,14 @@ mod tests {
     fn common(cli: Cli) -> CommonArgs {
         match cli.command {
             Command::Preview(args) => args.common,
+            Command::Write(args) => args.common,
+        }
+    }
+
+    fn write_args(args: &[&str]) -> WriteArgs {
+        match parse(args).unwrap().command {
+            Command::Write(args) => args,
+            Command::Preview(_) => panic!("expected the write command"),
         }
     }
 
@@ -168,12 +234,13 @@ mod tests {
     }
 
     #[test]
-    fn uses_defaults_when_options_are_omitted() {
+    fn leaves_settings_untouched_when_options_are_omitted() {
         let common = common(parse(&["preview", "abc"]).unwrap());
+        let mut settings = Settings::default();
 
-        assert_eq!(common.layout_config(), LayoutConfig::default());
-        assert_eq!(common.planner_config(), PlannerConfig::default());
-        assert_eq!(common.step_timing(), StepTiming::default());
+        common.apply(&mut settings);
+
+        assert_eq!(settings, Settings::default());
     }
 
     #[test]
@@ -189,17 +256,38 @@ mod tests {
             ])
             .unwrap(),
         );
-        let planner = common.planner_config();
+        let mut settings = Settings::default();
 
-        assert_eq!(planner.counts_per_em_x, 300.0);
-        assert_eq!(planner.counts_per_em_y, 200.0);
+        common.apply(&mut settings);
+
+        assert_eq!(settings.planner.counts_per_em_x, 300.0);
+        assert_eq!(settings.planner.counts_per_em_y, 200.0);
+    }
+
+    #[test]
+    fn cli_values_override_existing_settings() {
+        let common =
+            common(parse(&["preview", "abc", "--size", "2", "--step-delay-ms", "7"]).unwrap());
+        let mut settings = Settings::default();
+        settings.layout.size = 1.5;
+        settings.layout.line_spacing = 0.9;
+        settings.timing.step_delay_ms = 4;
+
+        common.apply(&mut settings);
+
+        assert_eq!(settings.layout.size, 2.0);
+        assert_eq!(settings.timing.step_delay_ms, 7);
+        assert_eq!(settings.layout.line_spacing, 0.9);
     }
 
     #[test]
     fn no_kinsoku_disables_kinsoku() {
         let common = common(parse(&["preview", "abc", "--no-kinsoku"]).unwrap());
+        let mut settings = Settings::default();
 
-        assert!(!common.layout_config().kinsoku);
+        common.apply(&mut settings);
+
+        assert!(!settings.layout.kinsoku);
     }
 
     #[test]
@@ -207,5 +295,46 @@ mod tests {
         assert!(parse(&["preview", "abc", "--size", "0"]).is_err());
         assert!(parse(&["preview", "abc", "--max-counts-per-step", "0"]).is_err());
         assert!(parse(&["preview", "abc", "--char-spacing", "-0.1"]).is_err());
+    }
+
+    #[test]
+    fn write_requires_exactly_one_text_source() {
+        assert!(parse(&["write"]).is_err());
+        assert!(parse(&["write", "abc", "--file", "a.txt"]).is_err());
+        assert!(parse(&["write", "abc"]).is_ok());
+        assert!(parse(&["write", "--file", "a.txt"]).is_ok());
+    }
+
+    #[test]
+    fn write_options_override_settings() {
+        let args = write_args(&[
+            "write",
+            "abc",
+            "--button",
+            "right",
+            "--start-hotkey",
+            "Ctrl+F8",
+            "--abort-hotkey",
+            "Ctrl+F9",
+        ]);
+        let mut settings = Settings::default();
+
+        args.apply(&mut settings);
+
+        assert_eq!(settings.button, PenButton::Right);
+        assert_eq!(settings.start_hotkey.to_string(), "Ctrl+F8");
+        assert_eq!(settings.abort_hotkey.to_string(), "Ctrl+F9");
+    }
+
+    #[test]
+    fn write_rejects_invalid_button_and_hotkey() {
+        assert!(parse(&["write", "abc", "--button", "x1"]).is_err());
+        assert!(parse(&["write", "abc", "--start-hotkey", "P"]).is_err());
+    }
+
+    #[test]
+    fn write_dry_run_flag_is_parsed() {
+        assert!(write_args(&["write", "abc", "--dry-run"]).dry_run);
+        assert!(!write_args(&["write", "abc"]).dry_run);
     }
 }

@@ -13,9 +13,6 @@ pub enum AutoQvError {
 
     #[error("input device error: {0}")]
     Input(String),
-
-    #[error("aborted by user")]
-    Aborted,
 }
 
 pub type Result<T> = std::result::Result<T, AutoQvError>;

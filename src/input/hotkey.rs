@@ -15,6 +15,17 @@ pub struct Hotkey {
     pub key: u32,
 }
 
+impl Hotkey {
+    pub const DEFAULT_START: Self = Self {
+        modifiers: MOD_ALT,
+        key: b'P' as u32,
+    };
+    pub const DEFAULT_ABORT: Self = Self {
+        modifiers: MOD_ALT,
+        key: b'C' as u32,
+    };
+}
+
 impl FromStr for Hotkey {
     type Err = AutoQvError;
 

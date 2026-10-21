@@ -4,6 +4,7 @@ mod error;
 mod glyph;
 mod input;
 mod layout;
+mod missing_log;
 mod planner;
 mod runner;
 
