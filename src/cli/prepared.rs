@@ -29,7 +29,7 @@ impl Prepared {
         offline: bool,
         settings: &Settings,
     ) -> anyhow::Result<Self> {
-        let mut store = dataset::load_store(offline).with_context(|| {
+        let mut store = dataset::load_store(text, offline).with_context(|| {
             if offline {
                 "failed to read the cached stroke data"
             } else {

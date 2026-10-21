@@ -11,7 +11,7 @@ const MAX_ATTEMPTS: u32 = 3;
 const RETRY_BACKOFF: Duration = Duration::from_secs(1);
 const CHUNK_BYTES: usize = 16 * 1024;
 
-pub trait Fetcher {
+pub trait Fetcher: Sync {
     fn get(&self, url: &str, on_progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<Vec<u8>>;
 }
 
@@ -49,6 +49,7 @@ impl HttpFetcher {
             let read = reader.read(&mut chunk).map_err(|e| Attempt {
                 message: e.to_string(),
                 retryable: true,
+                not_found: false,
             })?;
             if read == 0 {
                 break;
@@ -67,6 +68,9 @@ impl Fetcher for HttpFetcher {
             match self.get_once(url, on_progress) {
                 Ok(data) => return Ok(data),
                 Err(error) => {
+                    if error.not_found {
+                        return Err(AutoQvError::NotFound(url.to_string()));
+                    }
                     last_error = error.message;
                     if !error.retryable || attempt == MAX_ATTEMPTS {
                         break;
@@ -82,12 +86,14 @@ impl Fetcher for HttpFetcher {
 struct Attempt {
     message: String,
     retryable: bool,
+    not_found: bool,
 }
 
 impl Attempt {
     fn from_ureq(error: ureq::Error) -> Self {
         Self {
             retryable: is_retryable(&error),
+            not_found: matches!(error, ureq::Error::StatusCode(404)),
             message: error.to_string(),
         }
     }
@@ -120,5 +126,12 @@ mod tests {
     #[test]
     fn network_failures_are_retried() {
         assert!(is_retryable(&ureq::Error::Timeout(ureq::Timeout::Global)));
+    }
+
+    #[test]
+    fn only_404_is_reported_as_not_found() {
+        assert!(Attempt::from_ureq(ureq::Error::StatusCode(404)).not_found);
+        assert!(!Attempt::from_ureq(ureq::Error::StatusCode(403)).not_found);
+        assert!(!Attempt::from_ureq(ureq::Error::StatusCode(500)).not_found);
     }
 }

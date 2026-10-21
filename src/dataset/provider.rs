@@ -15,10 +15,11 @@ use crate::glyph::store::GlyphStore;
 const HERSHEY_LABEL: &str = "Fetching Hershey Roman Simplex";
 const LICENSES_HEADER: &str = "Licenses and credits for the stroke data cached by AutoQV.\n";
 const HERSHEY_NOTICE: &str = include_str!("assets/hershey-notice.txt");
+const KANJIVG_NOTICE: &str = include_str!("assets/kanjivg-notice.txt");
 
 pub struct DatasetProvider<F: Fetcher> {
-    cache: Cache,
-    fetcher: F,
+    pub(super) cache: Cache,
+    pub(super) fetcher: F,
     hershey_sha256: String,
 }
 
@@ -31,7 +32,18 @@ impl<F: Fetcher> DatasetProvider<F> {
         }
     }
 
-    pub fn load(&self, offline: bool, progress: &mut dyn Progress) -> Result<GlyphStore> {
+    pub fn load(
+        &self,
+        text: &str,
+        offline: bool,
+        progress: &mut dyn Progress,
+    ) -> Result<GlyphStore> {
+        let mut store = self.load_hershey(offline, progress)?;
+        self.load_kanjivg(text, offline, progress, &mut store)?;
+        Ok(store)
+    }
+
+    fn load_hershey(&self, offline: bool, progress: &mut dyn Progress) -> Result<GlyphStore> {
         if let Some(store) = self.cached_hershey() {
             return Ok(store);
         }
@@ -82,15 +94,36 @@ impl<F: Fetcher> DatasetProvider<F> {
         Ok(store)
     }
 
-    fn persist_hershey(&self, store: &GlyphStore) -> Result<()> {
+    pub(super) fn persist_hershey(&self, store: &GlyphStore) -> Result<()> {
         self.cache.write_hershey(&store.to_json_string()?)?;
-        self.cache
-            .write_licenses(&format!("{LICENSES_HEADER}\n{HERSHEY_NOTICE}"))?;
-        let fetched_at = OffsetDateTime::now_utc()
+        self.update_manifest(|manifest| manifest.hershey = Some(current_hershey_entry()))?;
+        self.write_licenses()
+    }
+
+    pub(super) fn update_manifest(&self, change: impl FnOnce(&mut Manifest)) -> Result<()> {
+        let mut manifest = self
+            .cache
+            .read_manifest()
+            .unwrap_or_else(|| Manifest::new(String::new(), None));
+        change(&mut manifest);
+        manifest.fetched_at = OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .map_err(std::io::Error::other)?;
-        self.cache
-            .write_manifest(&Manifest::new(fetched_at, Some(current_hershey_entry())))
+        self.cache.write_manifest(&manifest)
+    }
+
+    pub(super) fn write_licenses(&self) -> Result<()> {
+        let manifest = self.cache.read_manifest();
+        let mut text = LICENSES_HEADER.to_string();
+        if manifest.as_ref().is_some_and(|m| m.hershey.is_some()) {
+            text.push('\n');
+            text.push_str(HERSHEY_NOTICE);
+        }
+        if manifest.as_ref().is_some_and(|m| m.kanjivg.is_some()) {
+            text.push('\n');
+            text.push_str(KANJIVG_NOTICE);
+        }
+        self.cache.write_licenses(&text)
     }
 }
 
@@ -121,86 +154,12 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
     use std::fs;
 
     use super::*;
-
-    struct FakeFetcher {
-        body: Vec<u8>,
-        fail: bool,
-        calls: Cell<usize>,
-        urls: RefCell<Vec<String>>,
-    }
-
-    impl FakeFetcher {
-        fn serving(body: Vec<u8>) -> Self {
-            Self {
-                body,
-                fail: false,
-                calls: Cell::new(0),
-                urls: RefCell::new(Vec::new()),
-            }
-        }
-
-        fn failing() -> Self {
-            Self {
-                fail: true,
-                ..Self::serving(Vec::new())
-            }
-        }
-    }
-
-    impl Fetcher for &FakeFetcher {
-        fn get(&self, url: &str, on_progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<Vec<u8>> {
-            self.calls.set(self.calls.get() + 1);
-            self.urls.borrow_mut().push(url.to_string());
-            if self.fail {
-                return Err(AutoQvError::Dataset("network down".to_string()));
-            }
-            on_progress(self.body.len() as u64, Some(self.body.len() as u64));
-            Ok(self.body.clone())
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingProgress {
-        events: Vec<String>,
-    }
-
-    impl Progress for RecordingProgress {
-        fn begin(&mut self, label: &str) {
-            self.events.push(format!("begin:{label}"));
-        }
-        fn update(&mut self, _received: u64, _total: Option<u64>) {
-            self.events.push("update".to_string());
-        }
-        fn finish(&mut self) {
-            self.events.push("finish".to_string());
-        }
-        fn notice(&mut self, message: &str) {
-            self.events.push(format!("notice:{message}"));
-        }
-    }
-
-    fn rowmans_text() -> Vec<u8> {
-        vec!["  699  1JZ"; 95].join("\n").into_bytes()
-    }
-
-    fn provider<'a>(
-        dir: &tempfile::TempDir,
-        fetcher: &'a FakeFetcher,
-    ) -> DatasetProvider<&'a FakeFetcher> {
-        DatasetProvider::new(Cache::new(dir.path().to_path_buf()), fetcher)
-    }
-
-    fn seed_cache(dir: &tempfile::TempDir) {
-        let cache = Cache::new(dir.path().to_path_buf());
-        let store = convert_rowmans(&String::from_utf8(rowmans_text()).unwrap()).unwrap();
-        let fetcher = FakeFetcher::failing();
-        let provider = DatasetProvider::new(cache, &fetcher);
-        provider.persist_hershey(&store).unwrap();
-    }
+    use crate::dataset::test_support::{
+        FakeFetcher, RecordingProgress, provider, rowmans_text, seed_all, seed_hershey,
+    };
 
     #[test]
     fn sha256_matches_a_known_digest() {
@@ -225,14 +184,16 @@ mod tests {
     #[test]
     fn fresh_cache_is_reused_without_network_access() {
         let dir = tempfile::tempdir().unwrap();
-        seed_cache(&dir);
+        seed_all(&dir);
         let fetcher = FakeFetcher::failing();
         let mut progress = RecordingProgress::default();
 
-        let store = provider(&dir, &fetcher).load(false, &mut progress).unwrap();
+        let store = provider(&dir, &fetcher)
+            .load("", false, &mut progress)
+            .unwrap();
 
-        assert_eq!(store.len(), 95);
-        assert_eq!(fetcher.calls.get(), 0);
+        assert_eq!(store.len(), 95 + 184);
+        assert_eq!(fetcher.call_count(), 0);
         assert!(progress.events.is_empty());
     }
 
@@ -242,48 +203,50 @@ mod tests {
         let fetcher = FakeFetcher::failing();
         let mut progress = RecordingProgress::default();
 
-        let store = provider(&dir, &fetcher).load(true, &mut progress).unwrap();
+        let store = provider(&dir, &fetcher)
+            .load("", true, &mut progress)
+            .unwrap();
 
         assert!(store.is_empty());
-        assert_eq!(fetcher.calls.get(), 0);
+        assert_eq!(fetcher.call_count(), 0);
         assert!(progress.events[0].starts_with("notice:warning"));
     }
 
     #[test]
     fn offline_uses_a_valid_cache() {
         let dir = tempfile::tempdir().unwrap();
-        seed_cache(&dir);
+        seed_all(&dir);
         let fetcher = FakeFetcher::failing();
 
         let store = provider(&dir, &fetcher)
-            .load(true, &mut RecordingProgress::default())
+            .load("", true, &mut RecordingProgress::default())
             .unwrap();
 
-        assert_eq!(store.len(), 95);
+        assert_eq!(store.len(), 95 + 184);
     }
 
     #[test]
     fn corrupt_glyph_file_triggers_a_refetch_attempt() {
         let dir = tempfile::tempdir().unwrap();
-        seed_cache(&dir);
+        seed_all(&dir);
         fs::write(
-            Cache::new(dir.path().to_path_buf()).hershey_path(),
+            crate::dataset::cache::Cache::new(dir.path().to_path_buf()).hershey_path(),
             "broken",
         )
         .unwrap();
         let fetcher = FakeFetcher::failing();
 
-        let result = provider(&dir, &fetcher).load(false, &mut RecordingProgress::default());
+        let result = provider(&dir, &fetcher).load("", false, &mut RecordingProgress::default());
 
         assert!(result.is_err());
-        assert_eq!(fetcher.calls.get(), 1);
+        assert_eq!(fetcher.call_count(), 1);
     }
 
     #[test]
     fn outdated_manifest_triggers_a_refetch_attempt() {
         let dir = tempfile::tempdir().unwrap();
-        seed_cache(&dir);
-        let cache = Cache::new(dir.path().to_path_buf());
+        seed_all(&dir);
+        let cache = crate::dataset::cache::Cache::new(dir.path().to_path_buf());
         cache
             .write_manifest(&Manifest::new(
                 "x".to_string(),
@@ -295,10 +258,10 @@ mod tests {
             .unwrap();
         let fetcher = FakeFetcher::failing();
 
-        let result = provider(&dir, &fetcher).load(false, &mut RecordingProgress::default());
+        let result = provider(&dir, &fetcher).load("", false, &mut RecordingProgress::default());
 
         assert!(result.is_err());
-        assert_eq!(fetcher.calls.get(), 1);
+        assert_eq!(fetcher.call_count(), 1);
     }
 
     #[test]
@@ -307,11 +270,11 @@ mod tests {
         let fetcher = FakeFetcher::failing();
         let mut progress = RecordingProgress::default();
 
-        let result = provider(&dir, &fetcher).load(false, &mut progress);
+        let result = provider(&dir, &fetcher).load("", false, &mut progress);
 
         assert!(result.is_err());
         assert_eq!(progress.events.last().map(String::as_str), Some("finish"));
-        assert!(fetcher.urls.borrow()[0].contains(HERSHEY_COMMIT));
+        assert!(fetcher.requested()[0].contains(HERSHEY_COMMIT));
     }
 
     #[test]
@@ -319,7 +282,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let fetcher = FakeFetcher::serving(rowmans_text());
 
-        let result = provider(&dir, &fetcher).load(false, &mut RecordingProgress::default());
+        let result = provider(&dir, &fetcher).load("", false, &mut RecordingProgress::default());
 
         assert!(
             result
@@ -337,7 +300,7 @@ mod tests {
     #[test]
     fn persist_writes_glyphs_manifest_and_licenses() {
         let dir = tempfile::tempdir().unwrap();
-        seed_cache(&dir);
+        seed_hershey(&dir);
         let cache = Cache::new(dir.path().to_path_buf());
 
         assert_eq!(
@@ -347,6 +310,36 @@ mod tests {
         let licenses = fs::read_to_string(dir.path().join("LICENSES.txt")).unwrap();
         assert!(licenses.contains("A. V. Hershey"));
         assert!(licenses.contains("James Hurt"));
+        assert!(!licenses.contains("Ulrich Apel"));
+    }
+
+    #[test]
+    fn licenses_credit_both_sources_once_both_are_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        seed_all(&dir);
+        let fetcher = FakeFetcher::failing();
+        let target = provider(&dir, &fetcher);
+
+        target.write_licenses().unwrap();
+
+        let licenses = fs::read_to_string(dir.path().join("LICENSES.txt")).unwrap();
+        assert!(licenses.contains("A. V. Hershey"));
+        assert!(licenses.contains("Ulrich Apel"));
+        assert!(licenses.contains("Share Alike 3.0"));
+    }
+
+    #[test]
+    fn persisting_hershey_keeps_the_kanjivg_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        seed_all(&dir);
+
+        seed_hershey(&dir);
+
+        let manifest = Cache::new(dir.path().to_path_buf())
+            .read_manifest()
+            .unwrap();
+        assert!(manifest.kanjivg.is_some());
+        assert!(manifest.hershey.is_some());
     }
 
     #[test]
@@ -358,7 +351,7 @@ mod tests {
         target.hershey_sha256 = sha256_hex(&body);
         let mut progress = RecordingProgress::default();
 
-        let store = target.load(false, &mut progress).unwrap();
+        let store = target.load_hershey(false, &mut progress).unwrap();
 
         assert_eq!(store.len(), 95);
         assert_eq!(progress.events[0], format!("begin:{HERSHEY_LABEL}"));
@@ -373,10 +366,10 @@ mod tests {
 
         let second = FakeFetcher::failing();
         let cached = provider(&dir, &second)
-            .load(false, &mut RecordingProgress::default())
+            .load_hershey(false, &mut RecordingProgress::default())
             .unwrap();
         assert_eq!(cached.len(), 95);
-        assert_eq!(second.calls.get(), 0);
+        assert_eq!(second.call_count(), 0);
     }
 
     #[test]
@@ -390,7 +383,7 @@ mod tests {
         target.hershey_sha256 = sha256_hex(&body);
         let mut progress = RecordingProgress::default();
 
-        let store = target.load(false, &mut progress).unwrap();
+        let store = target.load_hershey(false, &mut progress).unwrap();
 
         assert_eq!(store.len(), 95);
         assert!(

@@ -14,6 +14,9 @@ pub enum AutoQvError {
     #[error("stroke data fetch failed: {0}")]
     Dataset(String),
 
+    #[error("not found: {0}")]
+    NotFound(String),
+
     #[error("input device error: {0}")]
     Input(String),
 }

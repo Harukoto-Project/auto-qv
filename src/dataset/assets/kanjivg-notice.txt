@@ -1,0 +1,12 @@
+KanjiVG
+
+Source: https://github.com/KanjiVG/kanjivg
+Website: http://kanjivg.tagaini.net
+
+Copyright (C) 2009/2010/2011 Ulrich Apel.
+KanjiVG is distributed under the Creative Commons Attribution-Share Alike 3.0
+licence (https://creativecommons.org/licenses/by-sa/3.0/).
+
+The stroke data for hiragana, katakana and kanji cached by AutoQV is converted
+from KanjiVG into a different format (normalized JSON polylines). The converted
+data is a derivative work and is shared under the same licence.

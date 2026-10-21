@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ const MANIFEST_FILE: &str = "manifest.json";
 const LICENSES_FILE: &str = "LICENSES.txt";
 const HERSHEY_DIR: &str = "hershey";
 const HERSHEY_FILE: &str = "rowmans.json";
+const KANJIVG_DIR: &str = "kanjivg";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HersheyEntry {
@@ -19,11 +21,21 @@ pub struct HersheyEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KanjivgEntry {
+    pub commit: String,
+    pub converter_version: u32,
+    #[serde(default)]
+    pub not_found: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
     pub fetched_at: String,
     #[serde(default)]
     pub hershey: Option<HersheyEntry>,
+    #[serde(default)]
+    pub kanjivg: Option<KanjivgEntry>,
 }
 
 impl Manifest {
@@ -32,6 +44,7 @@ impl Manifest {
             version: MANIFEST_VERSION,
             fetched_at,
             hershey,
+            kanjivg: None,
         }
     }
 }
@@ -58,6 +71,12 @@ impl Cache {
         self.root.join(HERSHEY_DIR).join(HERSHEY_FILE)
     }
 
+    pub fn kanjivg_path(&self, ch: char) -> PathBuf {
+        self.root
+            .join(KANJIVG_DIR)
+            .join(format!("{:05x}.json", ch as u32))
+    }
+
     pub fn read_manifest(&self) -> Option<Manifest> {
         let text = fs::read_to_string(self.root.join(MANIFEST_FILE)).ok()?;
         let manifest: Manifest = serde_json::from_str(&text).ok()?;
@@ -72,6 +91,18 @@ impl Cache {
 
     pub fn write_hershey(&self, json: &str) -> Result<()> {
         self.write_atomic(&self.hershey_path(), json.as_bytes())
+    }
+
+    pub fn write_kanjivg(&self, ch: char, json: &str) -> Result<()> {
+        self.write_atomic(&self.kanjivg_path(ch), json.as_bytes())
+    }
+
+    pub fn clear_kanjivg(&self) -> Result<()> {
+        match fs::remove_dir_all(self.root.join(KANJIVG_DIR)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn write_licenses(&self, text: &str) -> Result<()> {
@@ -104,11 +135,33 @@ mod tests {
     fn manifest_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache::new(dir.path().join("nested").join("cache"));
-        let manifest = Manifest::new("2026-10-22T00:00:00Z".to_string(), Some(entry()));
+        let mut manifest = Manifest::new("2026-10-22T00:00:00Z".to_string(), Some(entry()));
+        manifest.kanjivg = Some(KanjivgEntry {
+            commit: "def".to_string(),
+            converter_version: 2,
+            not_found: vec![0x20bb7, 0x4e00],
+        });
 
         cache.write_manifest(&manifest).unwrap();
 
         assert_eq!(cache.read_manifest(), Some(manifest));
+    }
+
+    #[test]
+    fn manifest_written_before_kanjivg_support_still_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(MANIFEST_FILE),
+            r#"{ "version": 1, "fetched_at": "x", "hershey": { "commit": "abc", "converter_version": 1 } }"#,
+        )
+        .unwrap();
+
+        let manifest = Cache::new(dir.path().to_path_buf())
+            .read_manifest()
+            .unwrap();
+
+        assert_eq!(manifest.hershey, Some(entry()));
+        assert_eq!(manifest.kanjivg, None);
     }
 
     #[test]
@@ -151,5 +204,33 @@ mod tests {
             .unwrap()
             .count();
         assert_eq!(leftovers, 1);
+    }
+
+    #[test]
+    fn kanjivg_files_are_named_by_code_point() {
+        let cache = Cache::new(PathBuf::from("root"));
+
+        assert!(cache.kanjivg_path('あ').ends_with("kanjivg/03042.json"));
+        assert!(cache.kanjivg_path('𠮷').ends_with("20bb7.json"));
+    }
+
+    #[test]
+    fn clearing_removes_only_the_kanjivg_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::new(dir.path().to_path_buf());
+        cache.write_hershey("h").unwrap();
+        cache.write_kanjivg('あ', "k").unwrap();
+
+        cache.clear_kanjivg().unwrap();
+
+        assert!(!cache.kanjivg_path('あ').exists());
+        assert!(cache.hershey_path().exists());
+    }
+
+    #[test]
+    fn clearing_without_a_directory_is_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(Cache::new(dir.path().to_path_buf()).clear_kanjivg().is_ok());
     }
 }
