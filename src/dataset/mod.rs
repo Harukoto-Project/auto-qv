@@ -1,13 +1,17 @@
+mod advance;
 pub mod batch;
 pub mod cache;
 pub mod charset;
 pub mod fetch;
+pub mod hangul;
+pub mod hangul_source;
 pub mod hershey;
 pub mod kanjivg;
 pub mod kanjivg_source;
 pub mod progress;
 pub mod provider;
 pub mod sources;
+mod svg_attr;
 pub mod svg_path;
 #[cfg(test)]
 mod test_support;

@@ -1,0 +1,14 @@
+KOSDIC Hangul single-line font (KOSDICHS)
+
+Source: https://github.com/golanlevin/p5-single-line-font-resources
+(hangeul_monoline_fonts: AutoCAD SHX fonts converted to SVG 1.1 fonts)
+
+Original font: "Hangul Hnaja Special character Simplex font for KOSDIC",
+designed by Choi Samrak (2006). The KOSDIC vector fonts are published by the
+Korea Institute of Construction Technology, which states that anyone may use
+them without restriction.
+
+The Hangul stroke data cached by AutoQV is converted from that SVG font into
+a different format (normalized JSON polylines). Syllables that are not among
+the original font's 2,350 precomposed glyphs were assembled from jamo by the
+upstream converter.

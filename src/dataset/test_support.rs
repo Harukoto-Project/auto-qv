@@ -92,6 +92,16 @@ pub fn rowmans_text() -> Vec<u8> {
     vec!["  699  1JZ"; 95].join("\n").into_bytes()
 }
 
+pub fn hangul_font_text() -> Vec<u8> {
+    let glyph = |code: u32| {
+        format!(
+            r#"<glyph unicode="&#x{code:X};" horiz-adv-x="1000" d="M100 100 L900 100 L900 900" />"#
+        )
+    };
+    let glyphs = [0x3131, 0xac00, 0xd55c, 0xae00].map(glyph).concat();
+    format!(r#"<svg><font-face units-per-em="1000" />{glyphs}</svg>"#).into_bytes()
+}
+
 pub fn provider<'a>(
     dir: &tempfile::TempDir,
     fetcher: &'a FakeFetcher,

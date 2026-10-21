@@ -5,7 +5,11 @@ const MAX_SEGMENTS: usize = 32;
 const SAME_POINT_EPSILON_SQ: f32 = 1e-8;
 
 pub fn flatten(d: &str) -> Result<Vec<Vec<Pt>>, String> {
-    let mut walker = Walker::default();
+    flatten_with_step(d, FLATTEN_STEP)
+}
+
+pub fn flatten_with_step(d: &str, step: f32) -> Result<Vec<Vec<Pt>>, String> {
+    let mut walker = Walker::new(step);
     let mut scanner = Scanner::new(d);
     let mut command: Option<u8> = None;
 
@@ -31,8 +35,8 @@ pub fn flatten(d: &str) -> Result<Vec<Vec<Pt>>, String> {
     Ok(walker.finish())
 }
 
-#[derive(Default)]
 struct Walker {
+    step: f32,
     subpaths: Vec<Vec<Pt>>,
     current: Vec<Pt>,
     position: Pt,
@@ -47,6 +51,17 @@ enum Control {
 }
 
 impl Walker {
+    fn new(step: f32) -> Self {
+        Self {
+            step,
+            subpaths: Vec::new(),
+            current: Vec::new(),
+            position: (0.0, 0.0),
+            start: (0.0, 0.0),
+            last_control: None,
+        }
+    }
+
     fn apply(&mut self, command: u8, scanner: &mut Scanner) -> Result<Option<u8>, String> {
         let relative = command.is_ascii_lowercase();
         let origin = if relative { self.position } else { (0.0, 0.0) };
@@ -133,7 +148,7 @@ impl Walker {
         self.begin_if_needed();
         let p0 = self.position;
         let length = distance(p0, c1) + distance(c1, c2) + distance(c2, end);
-        let segments = segment_count(length);
+        let segments = segment_count(length, self.step);
         for index in 1..=segments {
             let t = index as f32 / segments as f32;
             let u = 1.0 - t;
@@ -154,7 +169,7 @@ impl Walker {
         self.begin_if_needed();
         let p0 = self.position;
         let length = distance(p0, control) + distance(control, end);
-        let segments = segment_count(length);
+        let segments = segment_count(length, self.step);
         for index in 1..=segments {
             let t = index as f32 / segments as f32;
             let u = 1.0 - t;
@@ -304,8 +319,8 @@ fn distance(a: Pt, b: Pt) -> f32 {
     distance_sq(a, b).sqrt()
 }
 
-fn segment_count(length: f32) -> usize {
-    ((length / FLATTEN_STEP).ceil() as usize).clamp(1, MAX_SEGMENTS)
+fn segment_count(length: f32, step: f32) -> usize {
+    ((length / step).ceil() as usize).clamp(1, MAX_SEGMENTS)
 }
 
 #[cfg(test)]
@@ -316,6 +331,18 @@ mod tests {
         let mut paths = flatten(d).unwrap();
         assert_eq!(paths.len(), 1, "{d}");
         paths.remove(0)
+    }
+
+    #[test]
+    fn a_larger_step_flattens_a_curve_into_fewer_points() {
+        let d = "M0,0 C0,100 100,100 100,0";
+
+        let fine = flatten_with_step(d, 2.0).unwrap();
+        let coarse = flatten_with_step(d, 20.0).unwrap();
+
+        assert!(coarse[0].len() < fine[0].len());
+        assert_eq!(coarse[0].first(), fine[0].first());
+        assert_eq!(coarse[0].last(), fine[0].last());
     }
 
     #[test]

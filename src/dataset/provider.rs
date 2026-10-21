@@ -7,7 +7,8 @@ use super::fetch::Fetcher;
 use super::hershey::convert_rowmans;
 use super::progress::Progress;
 use super::sources::{
-    HERSHEY_COMMIT, HERSHEY_CONVERTER_VERSION, HERSHEY_ROWMANS_SHA256, hershey_rowmans_url,
+    HANGUL_FONT_SHA256, HERSHEY_COMMIT, HERSHEY_CONVERTER_VERSION, HERSHEY_ROWMANS_SHA256,
+    hershey_rowmans_url,
 };
 use crate::error::{AutoQvError, Result};
 use crate::glyph::store::GlyphStore;
@@ -16,11 +17,13 @@ const HERSHEY_LABEL: &str = "Fetching Hershey Roman Simplex";
 const LICENSES_HEADER: &str = "Licenses and credits for the stroke data cached by AutoQV.\n";
 const HERSHEY_NOTICE: &str = include_str!("assets/hershey-notice.txt");
 const KANJIVG_NOTICE: &str = include_str!("assets/kanjivg-notice.txt");
+const HANGUL_NOTICE: &str = include_str!("assets/hangul-notice.txt");
 
 pub struct DatasetProvider<F: Fetcher> {
     pub(super) cache: Cache,
     pub(super) fetcher: F,
     hershey_sha256: String,
+    pub(super) hangul_sha256: String,
 }
 
 impl<F: Fetcher> DatasetProvider<F> {
@@ -29,6 +32,7 @@ impl<F: Fetcher> DatasetProvider<F> {
             cache,
             fetcher,
             hershey_sha256: HERSHEY_ROWMANS_SHA256.to_string(),
+            hangul_sha256: HANGUL_FONT_SHA256.to_string(),
         }
     }
 
@@ -40,6 +44,7 @@ impl<F: Fetcher> DatasetProvider<F> {
     ) -> Result<GlyphStore> {
         let mut store = self.load_hershey(offline, progress)?;
         self.load_kanjivg(text, offline, progress, &mut store)?;
+        self.load_hangul(text, offline, progress, &mut store);
         Ok(store)
     }
 
@@ -75,7 +80,7 @@ impl<F: Fetcher> DatasetProvider<F> {
         progress.finish();
         let bytes = fetched?;
 
-        verify_sha256(&bytes, &self.hershey_sha256)?;
+        verify_sha256(&bytes, &self.hershey_sha256, "Hershey")?;
         let text = String::from_utf8(bytes)
             .map_err(|_| AutoQvError::Dataset("Hershey data is not valid UTF-8".to_string()))?;
         let store = convert_rowmans(&text)?;
@@ -123,6 +128,10 @@ impl<F: Fetcher> DatasetProvider<F> {
             text.push('\n');
             text.push_str(KANJIVG_NOTICE);
         }
+        if manifest.as_ref().is_some_and(|m| m.hangul.is_some()) {
+            text.push('\n');
+            text.push_str(HANGUL_NOTICE);
+        }
         self.cache.write_licenses(&text)
     }
 }
@@ -134,18 +143,18 @@ fn current_hershey_entry() -> HersheyEntry {
     }
 }
 
-fn verify_sha256(bytes: &[u8], expected: &str) -> Result<()> {
+pub(super) fn verify_sha256(bytes: &[u8], expected: &str, label: &str) -> Result<()> {
     let actual = sha256_hex(bytes);
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
         Err(AutoQvError::Dataset(format!(
-            "checksum mismatch for the downloaded Hershey data (expected {expected}, got {actual})"
+            "checksum mismatch for the downloaded {label} data (expected {expected}, got {actual})"
         )))
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(super) fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -171,11 +180,12 @@ mod tests {
 
     #[test]
     fn verify_rejects_a_different_digest() {
-        assert!(verify_sha256(b"abc", &"0".repeat(64)).is_err());
+        assert!(verify_sha256(b"abc", &"0".repeat(64), "Test").is_err());
         assert!(
             verify_sha256(
                 b"abc",
-                "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+                "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
+                "Test"
             )
             .is_ok()
         );

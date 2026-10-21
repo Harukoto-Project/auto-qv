@@ -13,6 +13,7 @@ const LICENSES_FILE: &str = "LICENSES.txt";
 const HERSHEY_DIR: &str = "hershey";
 const HERSHEY_FILE: &str = "rowmans.json";
 const KANJIVG_DIR: &str = "kanjivg";
+const HANGUL_DIR: &str = "hangul";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HersheyEntry {
@@ -29,6 +30,12 @@ pub struct KanjivgEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HangulEntry {
+    pub commit: String,
+    pub converter_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
     pub fetched_at: String,
@@ -36,6 +43,8 @@ pub struct Manifest {
     pub hershey: Option<HersheyEntry>,
     #[serde(default)]
     pub kanjivg: Option<KanjivgEntry>,
+    #[serde(default)]
+    pub hangul: Option<HangulEntry>,
 }
 
 impl Manifest {
@@ -45,6 +54,7 @@ impl Manifest {
             fetched_at,
             hershey,
             kanjivg: None,
+            hangul: None,
         }
     }
 }
@@ -77,6 +87,12 @@ impl Cache {
             .join(format!("{:05x}.json", ch as u32))
     }
 
+    pub fn hangul_path(&self, ch: char) -> PathBuf {
+        self.root
+            .join(HANGUL_DIR)
+            .join(format!("{:04x}.json", ch as u32))
+    }
+
     pub fn read_manifest(&self) -> Option<Manifest> {
         let text = fs::read_to_string(self.root.join(MANIFEST_FILE)).ok()?;
         let manifest: Manifest = serde_json::from_str(&text).ok()?;
@@ -97,8 +113,20 @@ impl Cache {
         self.write_atomic(&self.kanjivg_path(ch), json.as_bytes())
     }
 
+    pub fn write_hangul(&self, ch: char, json: &str) -> Result<()> {
+        self.write_atomic(&self.hangul_path(ch), json.as_bytes())
+    }
+
     pub fn clear_kanjivg(&self) -> Result<()> {
-        match fs::remove_dir_all(self.root.join(KANJIVG_DIR)) {
+        self.remove_dir(KANJIVG_DIR)
+    }
+
+    pub fn clear_hangul(&self) -> Result<()> {
+        self.remove_dir(HANGUL_DIR)
+    }
+
+    fn remove_dir(&self, name: &str) -> Result<()> {
+        match fs::remove_dir_all(self.root.join(name)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),
@@ -212,6 +240,43 @@ mod tests {
 
         assert!(cache.kanjivg_path('あ').ends_with("kanjivg/03042.json"));
         assert!(cache.kanjivg_path('𠮷').ends_with("20bb7.json"));
+    }
+
+    #[test]
+    fn hangul_files_are_named_by_code_point() {
+        let cache = Cache::new(PathBuf::from("root"));
+
+        assert!(cache.hangul_path('가').ends_with("hangul/ac00.json"));
+        assert!(cache.hangul_path('ㄱ').ends_with("hangul/3131.json"));
+    }
+
+    #[test]
+    fn manifest_with_a_hangul_entry_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::new(dir.path().to_path_buf());
+        let mut manifest = Manifest::new("x".to_string(), None);
+        manifest.hangul = Some(HangulEntry {
+            commit: "abc".to_string(),
+            converter_version: 1,
+        });
+
+        cache.write_manifest(&manifest).unwrap();
+
+        assert_eq!(cache.read_manifest(), Some(manifest));
+    }
+
+    #[test]
+    fn clearing_hangul_leaves_the_other_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::new(dir.path().to_path_buf());
+        cache.write_kanjivg('あ', "k").unwrap();
+        cache.write_hangul('가', "h").unwrap();
+
+        cache.clear_hangul().unwrap();
+
+        assert!(!cache.hangul_path('가').exists());
+        assert!(cache.kanjivg_path('あ').exists());
+        assert!(cache.clear_hangul().is_ok());
     }
 
     #[test]

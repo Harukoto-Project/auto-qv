@@ -10,8 +10,21 @@ const KANJI_RANGES: [(u32, u32); 4] = [
     (0x20000, 0x2fa1f),
 ];
 
+const HANGUL_RANGES: [(u32, u32); 2] = [(0x3131, 0x3163), (0xac00, 0xd7a3)];
+
 pub fn is_kana(ch: char) -> bool {
     in_ranges(ch as u32, &KANA_RANGES)
+}
+
+pub fn is_hangul(ch: char) -> bool {
+    in_ranges(ch as u32, &HANGUL_RANGES)
+}
+
+pub fn hangul_chars_in(text: &str) -> Vec<char> {
+    let mut seen = HashSet::new();
+    text.chars()
+        .filter(|ch| is_hangul(*ch) && seen.insert(*ch))
+        .collect()
 }
 
 pub fn is_kanji_candidate(ch: char) -> bool {
@@ -83,6 +96,31 @@ mod tests {
             kanji_chars_in("漢字かな交じり文、漢字\n文"),
             vec!['漢', '字', '交', '文', '、']
         );
+    }
+
+    #[test]
+    fn hangul_covers_syllables_and_compatibility_jamo() {
+        for ch in ['가', '한', '힣', 'ㄱ', 'ㅎ', 'ㅏ', 'ㅣ'] {
+            assert!(is_hangul(ch), "{ch}");
+        }
+    }
+
+    #[test]
+    fn hangul_excludes_other_scripts_and_unsupported_jamo() {
+        for ch in [
+            'あ', '漢', 'a', '1', '\u{1100}', '\u{3164}', '\u{d7a4}', '\u{abff}',
+        ] {
+            assert!(!is_hangul(ch), "{ch}");
+        }
+    }
+
+    #[test]
+    fn hangul_in_text_are_unique_and_in_order_of_appearance() {
+        assert_eq!(
+            hangul_chars_in("한글 한국어 ㄱ\n한 abc"),
+            vec!['한', '글', '국', '어', 'ㄱ']
+        );
+        assert!(hangul_chars_in("Hello あ漢").is_empty());
     }
 
     #[test]

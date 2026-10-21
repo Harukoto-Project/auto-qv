@@ -92,6 +92,10 @@ impl GlyphStore {
         self.glyphs.get(&ch)
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (char, &Glyph)> {
+        self.glyphs.iter().map(|(ch, glyph)| (*ch, glyph))
+    }
+
     pub fn len(&self) -> usize {
         self.glyphs.len()
     }
@@ -135,6 +139,20 @@ mod tests {
         assert_eq!(glyph.strokes[0][1], Point { x: 0.5, y: 0.31 });
         assert!(store.get(' ').unwrap().strokes.is_empty());
         assert!(store.get('い').is_none());
+    }
+
+    #[test]
+    fn iterates_over_every_glyph() {
+        let json = r#"{ "version": 1, "glyphs": {
+            "a": { "advance": 0.5, "strokes": [] },
+            "b": { "advance": 0.6, "strokes": [] }
+        } }"#;
+        let store = GlyphStore::from_json_str(json).unwrap();
+
+        let mut chars: Vec<char> = store.iter().map(|(ch, _)| ch).collect();
+        chars.sort_unstable();
+
+        assert_eq!(chars, vec!['a', 'b']);
     }
 
     #[test]

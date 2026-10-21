@@ -1,31 +1,13 @@
+use super::advance::{MAX_ADVANCE, fit_advance_to_ink};
+use super::svg_attr::attribute;
 use super::svg_path::flatten;
 use crate::glyph::model::{Glyph, Point, Stroke};
 
 const CANVAS_SIZE: f32 = 109.0;
 const CANVAS_VIEW_BOX: &str = "viewBox=\"0 0 109 109\"";
-const MAX_ADVANCE: f32 = 1.0;
-const SIDE_BEARING: f32 = 0.125;
 
 pub fn convert_svg(svg: &str) -> Result<Glyph, String> {
     build_glyph(svg).map(fit_advance_to_ink)
-}
-
-fn fit_advance_to_ink(mut glyph: Glyph) -> Glyph {
-    let (min_x, max_x) = glyph
-        .strokes
-        .iter()
-        .flatten()
-        .fold((f32::MAX, f32::MIN), |(lo, hi), p| {
-            (lo.min(p.x), hi.max(p.x))
-        });
-    let width = max_x - min_x;
-    let advance = (width + 2.0 * SIDE_BEARING).min(MAX_ADVANCE);
-    let shift = (advance - width) / 2.0 - min_x;
-    for point in glyph.strokes.iter_mut().flatten() {
-        point.x += shift;
-    }
-    glyph.advance = advance;
-    glyph
 }
 
 fn build_glyph(svg: &str) -> Result<Glyph, String> {
@@ -94,25 +76,6 @@ fn extract_paths(svg: &str) -> Vec<PathElement> {
         });
     }
     paths
-}
-
-fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let needle = format!("{name}=\"");
-    let mut search_from = 0;
-    while let Some(found) = tag[search_from..].find(&needle) {
-        let start = search_from + found;
-        let boundary = tag[..start]
-            .chars()
-            .next_back()
-            .is_none_or(|ch| ch.is_ascii_whitespace());
-        let value_start = start + needle.len();
-        if boundary {
-            let value_end = tag[value_start..].find('"')?;
-            return Some(&tag[value_start..value_start + value_end]);
-        }
-        search_from = value_start;
-    }
-    None
 }
 
 fn stroke_number(id: &str) -> Option<u32> {
