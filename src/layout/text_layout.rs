@@ -52,7 +52,7 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
             }
 
             layout.placed += 1;
-            cursor_x += width + char_gap;
+            cursor_x += (width + char_gap).max(0.0);
         }
     }
 
@@ -137,6 +137,35 @@ mod tests {
         let layout = layout_text("a", &store(), &config);
 
         assert_eq!(layout.strokes[0][1], Point { x: 1.0, y: 2.0 });
+    }
+
+    #[test]
+    fn negative_spacing_tightens_the_layout() {
+        let config = LayoutConfig {
+            char_spacing: -0.25,
+            ..config()
+        };
+        let layout = layout_text("ab", &store(), &config);
+
+        assert_eq!(
+            origin(&layout, 1),
+            Point {
+                x: 0.75 + 0.5,
+                y: 0.0
+            }
+        );
+    }
+
+    #[test]
+    fn the_cursor_never_moves_backwards() {
+        let config = LayoutConfig {
+            char_spacing: -1.0,
+            width_scale: 0.5,
+            ..config()
+        };
+        let layout = layout_text("ab", &store(), &config);
+
+        assert_eq!(origin(&layout, 1), Point { x: 0.25, y: 0.0 });
     }
 
     #[test]

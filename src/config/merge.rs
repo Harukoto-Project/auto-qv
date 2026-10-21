@@ -35,6 +35,9 @@ pub fn settings_from_file(file: ConfigFile) -> Result<Settings> {
     if let Some(value) = file.pen.min_pen_down_interval_ms {
         settings.timing.min_pen_down_interval_ms = value;
     }
+    if let Some(value) = file.pen.pen_down_settle_ms {
+        settings.timing.pen_down_settle_ms = value;
+    }
     if let Some(value) = file.pen.pen_down_delay_ms {
         settings.timing.pen_down_delay_ms = value;
     }
@@ -50,7 +53,7 @@ pub fn settings_from_file(file: ConfigFile) -> Result<Settings> {
     }
     if let Some(value) = file.layout.char_spacing {
         settings.layout.char_spacing =
-            checked("layout.char_spacing", validate::non_negative_f32(value))?;
+            checked("layout.char_spacing", validate::char_spacing(value))?;
     }
     if let Some(value) = file.layout.line_spacing {
         settings.layout.line_spacing =
@@ -118,6 +121,7 @@ mod tests {
             max_counts_per_step = 6
             move_speed_multiplier = 2.5
             min_pen_down_interval_ms = 300
+            pen_down_settle_ms = 20
             pen_down_delay_ms = 45
             pen_up_delay_ms = 0
 
@@ -146,6 +150,7 @@ mod tests {
         assert_eq!(settings.timing.max_counts_per_step, 6);
         assert_eq!(settings.timing.move_speed_multiplier, 2.5);
         assert_eq!(settings.timing.min_pen_down_interval_ms, 300);
+        assert_eq!(settings.timing.pen_down_settle_ms, 20);
         assert_eq!(settings.timing.pen_down_delay_ms, 45);
         assert_eq!(settings.timing.pen_up_delay_ms, 0);
         assert_eq!(settings.layout.size, 1.5);
@@ -183,7 +188,7 @@ mod tests {
         assert!(error.to_string().contains("sensitivity.counts_per_em_x"));
 
         assert!(parse("[pen]\nstep_delay_ms = 0\n").is_err());
-        assert!(parse("[layout]\nchar_spacing = -0.1\n").is_err());
+        assert!(parse("[layout]\nchar_spacing = -1.5\n").is_err());
         assert!(parse("[pen]\nbutton = \"x1\"\n").is_err());
         assert!(parse("[safety]\nstart_hotkey = \"P\"\n").is_err());
         assert!(parse("[log]\nmissing_glyph_log = \" \"\n").is_err());

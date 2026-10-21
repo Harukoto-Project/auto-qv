@@ -46,6 +46,7 @@ fn run(
 ) -> Result<RunOutcome> {
     let mut pacer = Pacer::new(Duration::from_millis(u64::from(timing.step_delay_ms)));
     let min_pen_down_interval = Duration::from_millis(u64::from(timing.min_pen_down_interval_ms));
+    let pen_down_settle = Duration::from_millis(u64::from(timing.pen_down_settle_ms));
     let pen_down_delay = Duration::from_millis(u64::from(timing.pen_down_delay_ms));
     let pen_up_delay = Duration::from_millis(u64::from(timing.pen_up_delay_ms));
     let mut last_press: Option<Instant> = None;
@@ -58,6 +59,9 @@ fn run(
 
         match *action {
             Action::PenDown => {
+                if sleep_abortable(pen_down_settle, should_abort) {
+                    return Ok(RunOutcome::Aborted);
+                }
                 if wait_for_pen_down_interval(last_press, min_pen_down_interval, should_abort) {
                     return Ok(RunOutcome::Aborted);
                 }
@@ -212,6 +216,7 @@ mod tests {
             max_counts_per_step: 8,
             move_speed_multiplier: 3.0,
             min_pen_down_interval_ms: 0,
+            pen_down_settle_ms: 0,
             pen_down_delay_ms: 0,
             pen_up_delay_ms: 0,
         }
@@ -481,6 +486,58 @@ mod tests {
         assert_eq!(outcome, RunOutcome::Completed);
         assert!(start.elapsed() >= Duration::from_millis(75));
         assert_eq!(driver.calls, vec![Call::Press, Call::Release]);
+    }
+
+    #[test]
+    fn pen_down_settle_waits_before_the_press() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            pen_down_settle_ms: 60,
+            ..timing()
+        };
+        let start = Instant::now();
+
+        execute(
+            &[Action::Move { dx: 4, dy: 0 }, Action::PenDown],
+            &mut driver,
+            &timing,
+            &mut || false,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert!(start.elapsed() >= Duration::from_millis(55));
+        assert_eq!(
+            driver.calls,
+            vec![Call::Move(4, 0), Call::Press, Call::Release]
+        );
+    }
+
+    #[test]
+    fn abort_while_settling_skips_the_press() {
+        let mut driver = FakeDriver::default();
+        let timing = StepTiming {
+            pen_down_settle_ms: 5000,
+            ..timing()
+        };
+        let mut polls = 0;
+        let start = Instant::now();
+
+        let outcome = execute(
+            &[Action::Move { dx: 4, dy: 0 }, Action::PenDown],
+            &mut driver,
+            &timing,
+            &mut || {
+                polls += 1;
+                polls > 3
+            },
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(outcome, RunOutcome::Aborted);
+        assert_eq!(driver.calls, vec![Call::Move(4, 0)]);
+        assert!(start.elapsed() < Duration::from_millis(2000));
     }
 
     #[test]

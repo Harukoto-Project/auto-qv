@@ -155,7 +155,7 @@ pub struct CommonArgs {
     #[arg(long, value_name = "N", value_parser = positive_f32, help = "Horizontal glyph scale factor (relative to size)")]
     pub width_scale: Option<f32>,
 
-    #[arg(long, value_name = "N", value_parser = non_negative_f32, help = "Character spacing (relative to size)")]
+    #[arg(long, value_name = "N", value_parser = char_spacing, allow_negative_numbers = true, help = "Character spacing (relative to size; negative values tighten, minimum -1.0)")]
     pub char_spacing: Option<f32>,
 
     #[arg(long, value_name = "N", value_parser = non_negative_f32, help = "Line spacing (relative to size)")]
@@ -182,6 +182,13 @@ pub struct CommonArgs {
         help = "Minimum interval between pen-down events in milliseconds (0 to disable)"
     )]
     pub min_pen_down_interval_ms: Option<u32>,
+
+    #[arg(
+        long,
+        value_name = "MS",
+        help = "Wait after the last move before pressing the pen button, in milliseconds (0 to disable)"
+    )]
+    pub pen_down_settle_ms: Option<u32>,
 
     #[arg(
         long,
@@ -242,6 +249,9 @@ impl CommonArgs {
         if let Some(value) = self.min_pen_down_interval_ms {
             settings.timing.min_pen_down_interval_ms = value;
         }
+        if let Some(value) = self.pen_down_settle_ms {
+            settings.timing.pen_down_settle_ms = value;
+        }
         if let Some(value) = self.pen_down_delay_ms {
             settings.timing.pen_down_delay_ms = value;
         }
@@ -254,6 +264,11 @@ impl CommonArgs {
 fn positive_f32(value: &str) -> Result<f32, String> {
     let parsed: f32 = value.parse().map_err(|e| format!("{e}"))?;
     validate::positive_f32(parsed).map_err(String::from)
+}
+
+fn char_spacing(value: &str) -> Result<f32, String> {
+    let parsed: f32 = value.parse().map_err(|e| format!("{e}"))?;
+    validate::char_spacing(parsed).map_err(String::from)
 }
 
 fn non_negative_f32(value: &str) -> Result<f32, String> {
@@ -366,6 +381,7 @@ mod tests {
     #[test]
     fn pen_delays_can_be_overridden_and_disabled() {
         let mut settings = Settings::default();
+        assert_eq!(settings.timing.pen_down_settle_ms, 30);
         assert_eq!(settings.timing.pen_down_delay_ms, 30);
         assert_eq!(settings.timing.pen_up_delay_ms, 30);
 
@@ -373,6 +389,8 @@ mod tests {
             parse(&[
                 "preview",
                 "abc",
+                "--pen-down-settle-ms",
+                "10",
                 "--pen-down-delay-ms",
                 "50",
                 "--pen-up-delay-ms",
@@ -382,8 +400,18 @@ mod tests {
         )
         .apply(&mut settings);
 
+        assert_eq!(settings.timing.pen_down_settle_ms, 10);
         assert_eq!(settings.timing.pen_down_delay_ms, 50);
         assert_eq!(settings.timing.pen_up_delay_ms, 0);
+    }
+
+    #[test]
+    fn char_spacing_accepts_negative_values() {
+        let mut settings = Settings::default();
+
+        common(parse(&["preview", "abc", "--char-spacing", "-0.1"]).unwrap()).apply(&mut settings);
+
+        assert_eq!(settings.layout.char_spacing, -0.1);
     }
 
     #[test]
@@ -411,7 +439,7 @@ mod tests {
     fn rejects_non_positive_values() {
         assert!(parse(&["preview", "abc", "--size", "0"]).is_err());
         assert!(parse(&["preview", "abc", "--max-counts-per-step", "0"]).is_err());
-        assert!(parse(&["preview", "abc", "--char-spacing", "-0.1"]).is_err());
+        assert!(parse(&["preview", "abc", "--char-spacing", "-1.5"]).is_err());
     }
 
     #[test]

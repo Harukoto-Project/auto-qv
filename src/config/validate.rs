@@ -14,6 +14,16 @@ pub fn non_negative_f32(value: f32) -> Result<f32, &'static str> {
     }
 }
 
+pub const MIN_CHAR_SPACING: f32 = -1.0;
+
+pub fn char_spacing(value: f32) -> Result<f32, &'static str> {
+    if value.is_finite() && value >= MIN_CHAR_SPACING {
+        Ok(value)
+    } else {
+        Err("must be a number of at least -1.0")
+    }
+}
+
 pub fn positive_u32(value: u32) -> Result<u32, &'static str> {
     if value > 0 {
         Ok(value)
@@ -40,6 +50,15 @@ mod tests {
         assert!(non_negative_f32(0.0).is_ok());
         assert!(non_negative_f32(-0.1).is_err());
         assert!(non_negative_f32(f32::NAN).is_err());
+    }
+
+    #[test]
+    fn char_spacing_accepts_negative_values_down_to_the_limit() {
+        assert!(char_spacing(0.15).is_ok());
+        assert!(char_spacing(-0.1).is_ok());
+        assert!(char_spacing(-1.0).is_ok());
+        assert!(char_spacing(-1.01).is_err());
+        assert!(char_spacing(f32::NAN).is_err());
     }
 
     #[test]
