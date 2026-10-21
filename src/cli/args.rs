@@ -24,6 +24,43 @@ pub enum Command {
     Write(WriteArgs),
     #[command(about = "Show the planned pen path summary without sending any input")]
     Preview(PreviewArgs),
+    #[command(about = "List the characters in the text that have no stroke data")]
+    Check(CheckArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CheckArgs {
+    #[command(flatten)]
+    pub source: TextSourceArgs,
+
+    #[command(flatten)]
+    pub data: StrokeDataArgs,
+}
+
+#[derive(Debug, Args)]
+#[command(group(ArgGroup::new("source").required(true).args(["text", "file"])))]
+pub struct TextSourceArgs {
+    #[arg(value_name = "TEXT", help = "Text to use")]
+    pub text: Option<String>,
+
+    #[arg(long, value_name = "PATH", help = "Read the text from a UTF-8 file")]
+    pub file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct StrokeDataArgs {
+    #[arg(
+        long = "glyph-file",
+        value_name = "PATH",
+        help = "Stroke data JSON file merged over the downloaded data (repeatable, later files win)"
+    )]
+    pub glyph_files: Vec<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Do not download stroke data; use only the cache and --glyph-file"
+    )]
+    pub offline: bool,
 }
 
 #[derive(Debug, Args)]
@@ -36,17 +73,9 @@ pub struct PreviewArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(group(ArgGroup::new("source").required(true).args(["text", "file"])))]
 pub struct WriteArgs {
-    #[arg(value_name = "TEXT", help = "Text to write")]
-    pub text: Option<String>,
-
-    #[arg(
-        long,
-        value_name = "PATH",
-        help = "Read the text to write from a UTF-8 file"
-    )]
-    pub file: Option<PathBuf>,
+    #[command(flatten)]
+    pub source: TextSourceArgs,
 
     #[command(flatten)]
     pub common: CommonArgs,
@@ -103,18 +132,8 @@ pub struct CommonArgs {
     )]
     pub config: Option<PathBuf>,
 
-    #[arg(
-        long = "glyph-file",
-        value_name = "PATH",
-        help = "Stroke data JSON file merged over the downloaded data (repeatable, later files win)"
-    )]
-    pub glyph_files: Vec<PathBuf>,
-
-    #[arg(
-        long,
-        help = "Do not download stroke data; use only the cache and --glyph-file"
-    )]
-    pub offline: bool,
+    #[command(flatten)]
+    pub data: StrokeDataArgs,
 
     #[arg(long, value_name = "N", value_parser = positive_f32, help = "Glyph scale factor")]
     pub size: Option<f32>,
@@ -234,13 +253,21 @@ mod tests {
         match cli.command {
             Command::Preview(args) => args.common,
             Command::Write(args) => args.common,
+            Command::Check(_) => panic!("the check command has no common options"),
         }
     }
 
     fn write_args(args: &[&str]) -> WriteArgs {
         match parse(args).unwrap().command {
             Command::Write(args) => args,
-            Command::Preview(_) => panic!("expected the write command"),
+            _ => panic!("expected the write command"),
+        }
+    }
+
+    fn check_args(args: &[&str]) -> CheckArgs {
+        match parse(args).unwrap().command {
+            Command::Check(args) => args,
+            _ => panic!("expected the check command"),
         }
     }
 
@@ -333,6 +360,23 @@ mod tests {
         assert!(parse(&["write", "abc", "--file", "a.txt"]).is_err());
         assert!(parse(&["write", "abc"]).is_ok());
         assert!(parse(&["write", "--file", "a.txt"]).is_ok());
+    }
+
+    #[test]
+    fn check_requires_exactly_one_text_source() {
+        assert!(parse(&["check"]).is_err());
+        assert!(parse(&["check", "abc", "--file", "a.txt"]).is_err());
+        assert!(parse(&["check", "abc"]).is_ok());
+        assert!(parse(&["check", "--file", "a.txt"]).is_ok());
+    }
+
+    #[test]
+    fn check_accepts_only_stroke_data_options() {
+        let args = check_args(&["check", "abc", "--offline", "--glyph-file", "g.json"]);
+
+        assert!(args.data.offline);
+        assert_eq!(args.data.glyph_files, vec![PathBuf::from("g.json")]);
+        assert!(parse(&["check", "abc", "--size", "2"]).is_err());
     }
 
     #[test]

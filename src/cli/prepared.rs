@@ -1,12 +1,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, bail};
-
 use super::report::PreviewReport;
+use super::stroke_data::load_glyphs;
 use crate::config::model::Settings;
-use crate::dataset;
-use crate::glyph::store::GlyphStore;
 use crate::input::dry_run::{DryRunDriver, DryRunStats};
 use crate::input::pen_driver::apply_action;
 use crate::layout::model::Layout;
@@ -29,19 +26,7 @@ impl Prepared {
         offline: bool,
         settings: &Settings,
     ) -> anyhow::Result<Self> {
-        let mut store = dataset::load_store(text, offline).with_context(|| {
-            if offline {
-                "failed to read the cached stroke data"
-            } else {
-                "failed to prepare the stroke data; check the network connection, use --offline to rely on the cache, or specify --glyph-file <PATH>"
-            }
-        })?;
-        store.merge(GlyphStore::from_json_files(glyph_files)?);
-        if store.is_empty() {
-            bail!(
-                "no stroke data available; run without --offline to download it, or specify --glyph-file <PATH>"
-            );
-        }
+        let store = load_glyphs(text, glyph_files, offline)?;
 
         let layout = layout_text(text, &store, &settings.layout);
         let actions = plan(&layout.strokes, &settings.planner);

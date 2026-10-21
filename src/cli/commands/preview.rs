@@ -8,8 +8,8 @@ pub fn run(args: &PreviewArgs) -> anyhow::Result<()> {
 
     let prepared = Prepared::build(
         &args.text,
-        &args.common.glyph_files,
-        args.common.offline,
+        &args.common.data.glyph_files,
+        args.common.data.offline,
         &settings,
     )?;
     print!("{}", prepared.report());
