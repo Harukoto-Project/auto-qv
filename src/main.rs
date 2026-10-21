@@ -8,5 +8,5 @@ mod planner;
 mod runner;
 
 fn main() -> anyhow::Result<()> {
-    Ok(())
+    cli::run()
 }

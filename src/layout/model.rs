@@ -32,4 +32,14 @@ pub struct MissingGlyph {
 pub struct Layout {
     pub strokes: Vec<Stroke>,
     pub missing: Vec<MissingGlyph>,
+    pub placed: usize,
+}
+
+impl Layout {
+    pub fn extent_em(&self) -> (f32, f32) {
+        self.strokes
+            .iter()
+            .flatten()
+            .fold((0.0, 0.0), |(w, h), p| (w.max(p.x), h.max(p.y)))
+    }
 }

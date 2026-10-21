@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -48,6 +50,21 @@ impl GlyphStore {
         }
 
         Ok(Self { glyphs })
+    }
+
+    pub fn from_json_file(path: &Path) -> Result<Self> {
+        let json = fs::read_to_string(path)
+            .map_err(|e| AutoQvError::GlyphData(format!("{}: {e}", path.display())))?;
+        Self::from_json_str(&json)
+            .map_err(|e| AutoQvError::GlyphData(format!("{}: {e}", path.display())))
+    }
+
+    pub fn from_json_files(paths: &[PathBuf]) -> Result<Self> {
+        let mut store = Self::default();
+        for path in paths {
+            store.merge(Self::from_json_file(path)?);
+        }
+        Ok(store)
     }
 
     pub fn merge(&mut self, other: GlyphStore) {
@@ -105,6 +122,13 @@ mod tests {
     fn rejects_empty_stroke() {
         let json = r#"{ "version": 1, "glyphs": { "a": { "advance": 1.0, "strokes": [[]] } } }"#;
         assert!(GlyphStore::from_json_str(json).is_err());
+    }
+
+    #[test]
+    fn missing_file_error_mentions_the_path() {
+        let err = GlyphStore::from_json_file(Path::new("no-such-glyphs.json")).unwrap_err();
+
+        assert!(err.to_string().contains("no-such-glyphs.json"));
     }
 
     #[test]

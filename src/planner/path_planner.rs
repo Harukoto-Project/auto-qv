@@ -7,6 +7,15 @@ pub struct PlannerConfig {
     pub counts_per_em_y: f32,
 }
 
+impl Default for PlannerConfig {
+    fn default() -> Self {
+        Self {
+            counts_per_em_x: 400.0,
+            counts_per_em_y: 400.0,
+        }
+    }
+}
+
 type Counts = (i32, i32);
 
 pub fn plan(strokes: &[Stroke], config: &PlannerConfig) -> Vec<Action> {

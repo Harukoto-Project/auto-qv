@@ -1,3 +1,3 @@
-mod check;
-mod preview;
-mod write;
+pub mod check;
+pub mod preview;
+pub mod write;

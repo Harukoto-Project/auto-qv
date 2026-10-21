@@ -51,6 +51,7 @@ pub fn layout_text(text: &str, store: &GlyphStore, config: &LayoutConfig) -> Lay
                 );
             }
 
+            layout.placed += 1;
             cursor_x += width + char_gap;
         }
     }
@@ -184,5 +185,14 @@ mod tests {
             ]
         );
         assert_eq!(origin(&layout, 1), Point { x: 0.5, y: 2.0 });
+        assert_eq!(layout.placed, 2);
+    }
+
+    #[test]
+    fn reports_extent_of_placed_strokes() {
+        let layout = layout_text("ab", &store(), &config());
+
+        assert_eq!(layout.extent_em(), (2.0, 1.0));
+        assert_eq!(layout.placed, 2);
     }
 }
