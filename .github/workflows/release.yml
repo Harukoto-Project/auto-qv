@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches Cargo.toml version
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $match = Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $cargoVersion = $match.Matches[0].Groups[1].Value
+          if ($tagVersion -ne $cargoVersion) {
+            Write-Error "Tag version ($tagVersion) does not match Cargo.toml version ($cargoVersion)"
+            exit 1
+          }
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "autoqv-${{ github.ref_name }}-windows-x86_64"
+          New-Item -ItemType Directory -Path dist/$name | Out-Null
+          Copy-Item target/release/autoqv.exe dist/$name/
+          Copy-Item LICENSE, README.md dist/$name/
+          Compress-Archive -Path dist/$name -DestinationPath dist/$name.zip
+          Copy-Item target/release/autoqv.exe dist/autoqv-${{ github.ref_name }}-windows-x86_64.exe
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          files: |
+            dist/*.zip
+            dist/*.exe
